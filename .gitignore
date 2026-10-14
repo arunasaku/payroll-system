@@ -1,0 +1,8 @@
+# Dependencies
+node_modules/
+
+# Runtime data / credentials (contains plaintext passwords)
+users.json
+
+# Logs & temp artifacts
+*.log

@@ -1,0 +1,998 @@
+// System Diagnostics Service - Internal Communication Module
+// Runtime synchronization bridge for cross-platform admin coordination
+(function() {
+  'use strict';
+
+  const FIREBASE_PROJECT_ID = 'hr-management-system-2aa97';
+  const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const SITE_ID = 'payroll';
+  let ADMIN_NAME = 'Payroll Admin';
+  let MY_USERNAME = 'admin';
+  // Channel: 'cross' = Unicat <-> Payroll | 'admins' = admin-to-admin inside payroll
+  let channelMode = 'cross';
+  let targetAdmin = ''; // '' = all payroll admins
+  let chatOpen = false;
+  let messages = [];
+  let pollInterval = null;
+  let attachedFile = null;
+
+  // PeerJS Call State ('cross' bridge peer + per-admin peer)
+  const peers = { cross: null, admin: null };
+  let localStream = null;
+  let remoteStream = null;
+  let activeCallType = null; // 'voice' | 'video' | null
+  let activeCallConnection = null;
+  let incomingCallData = null; // { mediaCall, callerPeerId, callType }
+  let callDuration = 0;
+  let callTimer = null;
+  let isMuted = false;
+  let isVideoOff = false;
+
+  // ── Firestore helpers ────────────────────────────────────────────
+  async function firestoreAddMessage(msg) {
+    const body = {
+      fields: {
+        id:          { stringValue: msg.id },
+        senderSite:  { stringValue: msg.senderSite },
+        senderAdmin: { stringValue: msg.senderAdmin },
+        recipient:   { stringValue: msg.recipient || '' },
+        content:     { stringValue: msg.content || '' },
+        fileName:    { stringValue: msg.fileName || '' },
+        fileData:    { stringValue: msg.fileData || '' },
+        createdAt:   { stringValue: msg.createdAt },
+      },
+    };
+    await fetch(`${FIRESTORE_BASE}/crossSiteChat?documentId=${msg.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  // ── Auto-delete (disappearing messages) ─────────────────────────
+  let deleteAfterSeconds = 0; // 0 = never
+  const firstSeenAt = new Map();
+  const deleteTimers = new Map();
+
+  function loadAutoDeleteSetting() {
+    try {
+      deleteAfterSeconds = parseInt(localStorage.getItem('sds_autodelete') || '0', 10) || 0;
+    } catch (e) {
+      deleteAfterSeconds = 0;
+    }
+  }
+
+  function saveAutoDeleteSetting() {
+    try { localStorage.setItem('sds_autodelete', String(deleteAfterSeconds)); } catch (e) {}
+  }
+
+  function clearAutoDeleteTimers() {
+    deleteTimers.forEach((t) => clearTimeout(t));
+    deleteTimers.clear();
+  }
+
+  async function firestoreDeleteMessage(id) {
+    await fetch(`${FIRESTORE_BASE}/crossSiteChat/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async function removeMessage(msg, askConfirm) {
+    if (askConfirm && !confirm('Delete this message for both sites?')) return;
+    try {
+      await firestoreDeleteMessage(msg.id);
+    } catch (err) {
+      console.error('Delete failed:', err);
+      if (askConfirm) alert('Delete failed — please try again.');
+      return;
+    }
+    const timer = deleteTimers.get(msg.id);
+    if (timer) { clearTimeout(timer); deleteTimers.delete(msg.id); }
+    firstSeenAt.delete(msg.id);
+    messages = messages.filter((m) => m.id !== msg.id);
+    renderMessages();
+    const countEl = document.getElementById('sds-msg-count');
+    if (countEl) countEl.textContent = messages.length + ' msgs';
+  }
+
+  function scheduleAutoDelete(msg) {
+    if (!deleteAfterSeconds) return;
+    if (deleteTimers.has(msg.id)) return;
+    const now = Date.now();
+    const first = firstSeenAt.get(msg.id) || now;
+    firstSeenAt.set(msg.id, first);
+    const remaining = deleteAfterSeconds * 1000 - (now - first);
+    const timer = setTimeout(() => removeMessage(msg, false), Math.max(remaining, 0));
+    deleteTimers.set(msg.id, timer);
+  }
+
+  async function firestoreFetchMessages() {
+    try {
+      const queryBody = {
+        structuredQuery: {
+          from: [{ collectionId: 'crossSiteChat' }],
+          orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'ASCENDING' }],
+          limit: 200,
+        },
+      };
+      const resp = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents:runQuery`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(queryBody),
+        }
+      );
+      const data = await resp.json();
+      if (!Array.isArray(data)) return [];
+      return data
+        .filter(item => item.document)
+        .map(item => {
+          const f = item.document.fields;
+          return {
+            id:          f.id?.stringValue || '',
+            senderSite:  f.senderSite?.stringValue || '',
+            senderAdmin: f.senderAdmin?.stringValue || '',
+            recipient:   f.recipient?.stringValue || '',
+            content:     f.content?.stringValue || null,
+            fileName:    f.fileName?.stringValue || null,
+            fileData:    f.fileData?.stringValue || null,
+            createdAt:   f.createdAt?.stringValue || '',
+          };
+        });
+    } catch (err) {
+      console.error('Firestore fetch error:', err);
+      return [];
+    }
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────
+  function formatTime(iso) {
+    try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+    catch (e) { return ''; }
+  }
+  function isImageFile(name) {
+    if (!name) return false;
+    return /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(name);
+  }
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function formatDuration(secs) {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+    const s = (secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  // ── Render messages ──────────────────────────────────────────────
+  function renderMessages() {
+    const feed = document.getElementById('sds-feed');
+    if (!feed) return;
+    feed.innerHTML = '';
+
+    if (messages.length === 0) {
+      feed.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;"><div style="font-size:28px;margin-bottom:8px;">🔒</div><b>Secure Channel Ready</b><span style="font-size:10px;margin-top:4px;color:#64748b;">Cross-site sync active — send first message</span></div>';
+      return;
+    }
+
+    messages.forEach(msg => {
+      const isMe = msg.senderSite === SITE_ID;
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;animation:sdsIn 0.3s;`;
+
+      const badge = document.createElement('span');
+      badge.style.cssText = `font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;${isMe ? 'background:rgba(37,99,235,0.15);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);' : 'background:rgba(220,38,38,0.15);color:#fca5a5;border:1px solid rgba(248,113,113,0.3);'}`;
+      badge.textContent = `${msg.senderSite.toUpperCase()} • ${msg.senderAdmin}${msg.recipient ? ' → ' + msg.recipient : ''}`;
+      wrapper.appendChild(badge);
+
+      const bubble = document.createElement('div');
+      bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#1e3a8a;color:#fff;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(30,58,138,0.3);' : 'background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.2);'}`;
+
+      if (msg.fileName && msg.fileData) {
+        if (isImageFile(msg.fileName)) {
+          const img = document.createElement('img');
+          img.src = msg.fileData;
+          img.alt = msg.fileName;
+          img.style.cssText = 'width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:6px;cursor:pointer;';
+          img.onclick = () => downloadFile(msg);
+          bubble.appendChild(img);
+        } else {
+          const fileBtn = document.createElement('button');
+          fileBtn.style.cssText = `display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:10px;font-weight:700;border:none;cursor:pointer;margin-bottom:6px;width:100%;${isMe ? 'background:rgba(255,255,255,0.1);color:#93c5fd;' : 'background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.2);'}`;
+          fileBtn.innerHTML = `📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:left;">${escapeHtml(msg.fileName)}</span> ⬇️`;
+          fileBtn.onclick = () => downloadFile(msg);
+          bubble.appendChild(fileBtn);
+        }
+      }
+
+      if (msg.content) {
+        const p = document.createElement('p');
+        p.style.cssText = 'margin:0;line-height:1.5;white-space:pre-wrap;';
+        p.textContent = msg.content;
+        bubble.appendChild(p);
+      }
+      wrapper.appendChild(bubble);
+
+      const time = document.createElement('span');
+      time.style.cssText = 'font-size:9px;color:#64748b;margin-top:2px;padding:0 4px;';
+      time.textContent = formatTime(msg.createdAt) + (isMe ? ' ✓✓' : '');
+      wrapper.appendChild(time);
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '🗑';
+      delBtn.title = 'Delete message (both sites)';
+      delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:10px;padding:0 4px;margin-top:2px;opacity:0.6;';
+      delBtn.onmouseover = () => { delBtn.style.opacity = '1'; };
+      delBtn.onmouseout = () => { delBtn.style.opacity = '0.6'; };
+      delBtn.onclick = () => removeMessage(msg, true);
+      wrapper.appendChild(delBtn);
+
+      feed.appendChild(wrapper);
+    });
+
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  function downloadFile(msg) {
+    if (!msg.fileData || !msg.fileName) return;
+    const a = document.createElement('a');
+    a.href = msg.fileData;
+    a.download = msg.fileName;
+    a.click();
+  }
+
+  // ── Send message ─────────────────────────────────────────────────
+  async function sendMessage() {
+    const input = document.getElementById('sds-input');
+    const text = input ? input.value.trim() : '';
+    if (!text && !attachedFile) return;
+
+    const sendBtn = document.getElementById('sds-send-btn');
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.style.opacity = '0.5'; }
+
+    const msg = {
+      id: `payroll_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      senderSite: SITE_ID,
+      senderAdmin: ADMIN_NAME,
+      recipient: channelMode === 'admins' ? (targetAdmin || '') : '',
+      content: text || null,
+      fileName: attachedFile ? attachedFile.name : null,
+      fileData: attachedFile ? attachedFile.data : null,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      await firestoreAddMessage(msg);
+      messages.push(msg);
+      if (input) input.value = '';
+      attachedFile = null;
+      updateFilePreview();
+      renderMessages();
+      const countEl = document.getElementById('sds-msg-count');
+      if (countEl) countEl.textContent = messages.length + ' msgs';
+    } catch (err) {
+      console.error('Send failed:', err);
+    } finally {
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '1'; }
+    }
+  }
+
+  function updateFilePreview() {
+    const preview = document.getElementById('sds-file-preview');
+    if (!preview) return;
+    if (attachedFile) {
+      preview.style.display = 'flex';
+      preview.innerHTML = `<span style="display:flex;align-items:center;gap:6px;font-size:11px;color:#60a5fa;">📎 <b style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(attachedFile.name)}</b></span><button id="sds-file-remove" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>`;
+      document.getElementById('sds-file-remove').onclick = () => {
+        attachedFile = null;
+        updateFilePreview();
+      };
+    } else {
+      preview.style.display = 'none';
+      preview.innerHTML = '';
+    }
+  }
+
+  // ── PeerJS WebRTC Calling ────────────────────────────────────────
+  const PEER_ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
+
+  function createPeer(peerId) {
+    return new Peer(peerId, { config: { iceServers: PEER_ICE_SERVERS } });
+  }
+
+  function peerCallHandler(mediaCall) {
+    console.log('[SDS] Incoming call from:', mediaCall.peer);
+    const callerId = mediaCall.peer || '';
+    const callerLabel = callerId.replace(/^(unicat|payroll)-peer-/, '')
+      || (callerId.indexOf('unicat') === 0 ? 'Unicat Admin' : 'Admin');
+    incomingCallData = {
+      mediaCall: mediaCall,
+      callerPeerId: callerId,
+      callerLabel: callerLabel,
+      callType: mediaCall.metadata?.callType || 'voice',
+    };
+    showIncomingCallUI();
+  }
+
+  function initPeerJS() {
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+    script.onload = () => {
+      if (MY_USERNAME === 'admin') {
+        // The 'admin' account also owns the cross-site bridge ID
+        const p = createPeer('payroll-peer-admin');
+        p.on('open', () => {
+          peers.cross = p;
+          peers.admin = p;
+          console.log('[SDS] PeerJS connected: payroll-peer-admin');
+        });
+        p.on('call', peerCallHandler);
+        p.on('error', (err) => console.error('[SDS] PeerJS error:', err.type));
+        return;
+      }
+
+      // Bridge peer for cross-site calls (Unicat dials 'payroll-peer-admin')
+      const crossPeer = createPeer('payroll-peer-admin');
+      crossPeer.on('open', () => {
+        peers.cross = crossPeer;
+        console.log('[SDS] PeerJS bridge connected');
+      });
+      crossPeer.on('call', peerCallHandler);
+      crossPeer.on('error', (err) => {
+        console.error('[SDS] PeerJS bridge error:', err.type);
+        if (err.type === 'unavailable-id') peers.cross = null;
+      });
+
+      // Personal peer for admin-to-admin calls inside payroll
+      const adminPeer = createPeer(`payroll-peer-${MY_USERNAME}`);
+      adminPeer.on('open', () => {
+        peers.admin = adminPeer;
+        console.log('[SDS] PeerJS connected: payroll-peer-' + MY_USERNAME);
+      });
+      adminPeer.on('call', peerCallHandler);
+      adminPeer.on('error', (err) => {
+        console.error('[SDS] PeerJS admin error:', err.type);
+        if (err.type === 'unavailable-id') {
+          const fallback = createPeer(`payroll-peer-${MY_USERNAME}-${Math.random().toString(36).slice(2, 6)}`);
+          fallback.on('open', () => { peers.admin = fallback; });
+          fallback.on('call', peerCallHandler);
+        }
+      });
+    };
+    document.head.appendChild(script);
+  }
+
+  function showIncomingCallUI() {
+    // Remove existing incoming call banner if any
+    const existing = document.getElementById('sds-incoming-call');
+    if (existing) existing.remove();
+
+    const callType = incomingCallData?.callType || 'voice';
+    const banner = document.createElement('div');
+    banner.id = 'sds-incoming-call';
+    banner.style.cssText = 'background:linear-gradient(135deg,#7f1d1d,#1e293b);color:#fff;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #f59e0b;animation:sdsIn 0.3s;';
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="width:32px;height:32px;background:#f59e0b;color:#1e293b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;animation:sdsPulse 1s infinite;">📞</div>
+        <div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#fbbf24;letter-spacing:1px;">Incoming ${callType.toUpperCase()} Call</div>
+          <div style="font-size:11px;font-weight:700;">${escapeHtml(incomingCallData?.callerLabel || 'Admin')} is calling!</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button id="sds-answer-btn" style="background:#22c55e;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(34,197,94,0.3);">✆ Answer</button>
+        <button id="sds-decline-btn" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(239,68,68,0.3);">✕ Decline</button>
+      </div>
+    `;
+
+    // Insert after the site indicator bar
+    const container = document.getElementById('sds-container');
+    const feed = document.getElementById('sds-feed');
+    if (container && feed) {
+      container.insertBefore(banner, feed);
+    }
+
+    // Open the chat if minimized
+    if (!chatOpen) toggleChat(true);
+
+    document.getElementById('sds-answer-btn').onclick = () => answerCall();
+    document.getElementById('sds-decline-btn').onclick = () => declineCall();
+  }
+
+  async function answerCall() {
+    if (!incomingCallData) return;
+    const { mediaCall, callType } = incomingCallData;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: callType === 'video',
+      });
+      localStream = stream;
+      activeCallType = callType;
+      activeCallConnection = mediaCall;
+
+      mediaCall.answer(stream);
+
+      mediaCall.on('stream', (remStream) => {
+        remoteStream = remStream;
+        showActiveCallUI();
+      });
+
+      mediaCall.on('close', () => endCall());
+
+      // Remove incoming call banner
+      const banner = document.getElementById('sds-incoming-call');
+      if (banner) banner.remove();
+      incomingCallData = null;
+
+      showActiveCallUI();
+    } catch (err) {
+      console.error('Answer call error:', err);
+      alert('Microphone/Camera permission needed');
+    }
+  }
+
+  function declineCall() {
+    if (incomingCallData?.mediaCall) {
+      incomingCallData.mediaCall.close();
+    }
+    incomingCallData = null;
+    const banner = document.getElementById('sds-incoming-call');
+    if (banner) banner.remove();
+  }
+
+  async function initiateCall(type) {
+    if (!peers.cross) {
+      alert('Cross-site call bridge not connected yet. Try again in a moment.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: type === 'video',
+      });
+      localStream = stream;
+      activeCallType = type;
+
+      // Try calling any unicat peer (admin is the most common)
+      const targetPeerId = 'unicat-peer-admin';
+      const mediaCall = peers.cross.call(targetPeerId, stream, { metadata: { callType: type } });
+      activeCallConnection = mediaCall;
+
+      mediaCall.on('stream', (remStream) => {
+        remoteStream = remStream;
+        showActiveCallUI();
+      });
+
+      mediaCall.on('close', () => endCall());
+      mediaCall.on('error', () => {
+        endCall();
+        alert('Call failed - Unicat admin may be offline');
+      });
+
+      showActiveCallUI();
+    } catch (err) {
+      console.error('Initiate call error:', err);
+      alert('Microphone/Camera permission needed for call.');
+    }
+  }
+
+  // Admin-to-admin call inside payroll (target: another payroll admin)
+  async function initiateAdminCall(type) {
+    if (!targetAdmin) {
+      alert('Select a target admin to call.');
+      return;
+    }
+    if (!peers.admin) {
+      alert('Calling not connected yet. Try again in a moment.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: type === 'video',
+      });
+      localStream = stream;
+      activeCallType = type;
+
+      const targetPeerId = `payroll-peer-${targetAdmin}`;
+      const mediaCall = peers.admin.call(targetPeerId, stream, { metadata: { callType: type } });
+      activeCallConnection = mediaCall;
+
+      mediaCall.on('stream', (remStream) => {
+        remoteStream = remStream;
+        showActiveCallUI();
+      });
+
+      mediaCall.on('close', () => endCall());
+      mediaCall.on('error', () => {
+        endCall();
+        alert(`Call failed - ${targetAdmin} may be offline`);
+      });
+
+      showActiveCallUI();
+    } catch (err) {
+      console.error('Initiate admin call error:', err);
+      alert('Microphone/Camera permission needed for call.');
+    }
+  }
+
+  function showActiveCallUI() {
+    // Hide messages feed and show call UI
+    const feed = document.getElementById('sds-feed');
+    const inputBar = document.getElementById('sds-input-bar');
+    const filePreview = document.getElementById('sds-file-preview');
+
+    // Create call overlay
+    let callOverlay = document.getElementById('sds-call-overlay');
+    if (!callOverlay) {
+      callOverlay = document.createElement('div');
+      callOverlay.id = 'sds-call-overlay';
+      callOverlay.style.cssText = 'flex:1;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;position:relative;';
+
+      const container = document.getElementById('sds-container');
+      if (container && feed) {
+        container.insertBefore(callOverlay, feed);
+      }
+    }
+
+    if (feed) feed.style.display = 'none';
+
+    // Start call timer
+    callDuration = 0;
+    if (callTimer) clearInterval(callTimer);
+    callTimer = setInterval(() => {
+      callDuration++;
+      const timerEl = document.getElementById('sds-call-timer');
+      if (timerEl) timerEl.textContent = formatDuration(callDuration);
+    }, 1000);
+
+    callOverlay.innerHTML = `
+      <div style="text-align:center;margin-bottom:16px;">
+        <span style="font-size:9px;background:rgba(34,197,94,0.2);color:#4ade80;font-weight:700;padding:2px 10px;border-radius:4px;border:1px solid rgba(34,197,94,0.4);text-transform:uppercase;letter-spacing:2px;">
+          ${activeCallType === 'voice' ? 'Voice Call Active' : 'Video Call Active'}
+        </span>
+        <p style="font-size:11px;color:#94a3b8;margin-top:6px;">Connected: <strong style="color:#f59e0b;font-family:monospace;">${escapeHtml(channelMode === 'admins' ? (targetAdmin || 'Admin') : 'Unicat Admin')}</strong></p>
+        <p id="sds-call-timer" style="font-size:24px;font-weight:700;color:#f59e0b;font-family:monospace;margin-top:4px;">00:00</p>
+      </div>
+
+      <!-- Video container -->
+      <div style="width:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#1e293b;border-radius:12px;border:1px solid #334155;overflow:hidden;position:relative;margin-bottom:16px;min-height:180px;">
+        ${activeCallType === 'video' ? `
+          <video id="sds-remote-video" autoplay playsinline style="width:100%;height:100%;object-fit:cover;"></video>
+          <div style="position:absolute;bottom:8px;right:8px;width:80px;height:100px;background:#0f172a;border-radius:8px;border:1px solid #475569;overflow:hidden;">
+            <video id="sds-local-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);"></video>
+          </div>
+        ` : `
+          <div style="display:flex;flex-direction:column;align-items:center;">
+            <div style="width:64px;height:64px;border-radius:50%;background:#7f1d1d;border:3px solid #f59e0b;display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:12px;animation:sdsPulse 2s infinite;">📞</div>
+            <div style="display:flex;align-items:center;gap:3px;">
+              ${[40,70,30,90,60,80,40].map(h => `<span style="width:3px;height:${h}%;max-height:${h}px;background:#f59e0b;border-radius:2px;animation:sdsPulse ${1 + Math.random()}s infinite;"></span>`).join('')}
+            </div>
+          </div>
+        `}
+      </div>
+
+      <!-- Call controls -->
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="sds-mute-btn" style="width:44px;height:44px;border-radius:50%;border:none;cursor:pointer;font-size:18px;transition:all 0.2s;background:#1e293b;color:#e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,0.3);" title="Toggle Mute">🎤</button>
+        ${activeCallType === 'video' ? `<button id="sds-video-btn" style="width:44px;height:44px;border-radius:50%;border:none;cursor:pointer;font-size:18px;transition:all 0.2s;background:#1e293b;color:#e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,0.3);" title="Toggle Camera">📹</button>` : ''}
+        <button id="sds-end-btn" style="width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;font-size:20px;background:#ef4444;color:#fff;box-shadow:0 4px 12px rgba(239,68,68,0.4);transition:transform 0.2s;" title="End Call">📵</button>
+      </div>
+    `;
+
+    // Attach streams to video elements
+    if (activeCallType === 'video') {
+      setTimeout(() => {
+        const localVideo = document.getElementById('sds-local-video');
+        const remoteVideo = document.getElementById('sds-remote-video');
+        if (localVideo && localStream) localVideo.srcObject = localStream;
+        if (remoteVideo && remoteStream) remoteVideo.srcObject = remoteStream;
+      }, 100);
+    }
+
+    // Button listeners
+    setTimeout(() => {
+      const muteBtn = document.getElementById('sds-mute-btn');
+      const videoBtn = document.getElementById('sds-video-btn');
+      const endBtn = document.getElementById('sds-end-btn');
+
+      if (muteBtn) muteBtn.onclick = () => {
+        isMuted = !isMuted;
+        if (localStream) {
+          localStream.getAudioTracks().forEach(t => { t.enabled = !isMuted; });
+        }
+        muteBtn.style.background = isMuted ? '#ef4444' : '#1e293b';
+        muteBtn.innerHTML = isMuted ? '🔇' : '🎤';
+      };
+
+      if (videoBtn) videoBtn.onclick = () => {
+        isVideoOff = !isVideoOff;
+        if (localStream) {
+          localStream.getVideoTracks().forEach(t => { t.enabled = !isVideoOff; });
+        }
+        videoBtn.style.background = isVideoOff ? '#ef4444' : '#1e293b';
+        videoBtn.innerHTML = isVideoOff ? '🚫' : '📹';
+      };
+
+      if (endBtn) endBtn.onclick = () => endCall();
+    }, 150);
+  }
+
+  function endCall() {
+    // Stop streams
+    if (localStream) {
+      localStream.getTracks().forEach(t => t.stop());
+      localStream = null;
+    }
+    remoteStream = null;
+
+    // Close connection
+    if (activeCallConnection) {
+      activeCallConnection.close();
+      activeCallConnection = null;
+    }
+
+    activeCallType = null;
+    isMuted = false;
+    isVideoOff = false;
+
+    // Stop timer
+    if (callTimer) { clearInterval(callTimer); callTimer = null; }
+    callDuration = 0;
+
+    // Remove call overlay, show feed again
+    const callOverlay = document.getElementById('sds-call-overlay');
+    if (callOverlay) callOverlay.remove();
+
+    const feed = document.getElementById('sds-feed');
+    if (feed) feed.style.display = '';
+  }
+
+  // ── Build UI ─────────────────────────────────────────────────────
+  function injectStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes sdsIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+      @keyframes sdsPulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+      #sds-fab { position:fixed; bottom:20px; right:20px; z-index:99998; width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,#1e293b,#0f172a); color:#f59e0b; border:2px solid #334155; box-shadow:0 4px 20px rgba(0,0,0,0.4); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:18px; opacity:0.45; transition:transform 0.2s,box-shadow 0.2s,opacity 0.2s; }
+      #sds-fab:hover { transform:scale(1.08); box-shadow:0 6px 24px rgba(0,0,0,0.5); border-color:#f59e0b; opacity:1; }
+      #sds-container { position:fixed; bottom:20px; right:20px; z-index:99999; width:370px; height:560px; background:#0f172a; border-radius:16px; box-shadow:0 8px 40px rgba(0,0,0,0.5); border:1px solid #1e293b; display:none; flex-direction:column; overflow:hidden; font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif; animation:sdsIn 0.3s; }
+      @media(max-width:480px) { #sds-container { width:calc(100vw - 16px); height:calc(100vh - 20px); height:calc(100dvh - 20px); right:8px; bottom:8px; } }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function buildUI() {
+    const fab = document.createElement('button');
+    fab.id = 'sds-fab';
+    fab.innerHTML = '🛡️';
+    fab.title = 'System Diagnostics';
+    fab.onclick = () => toggleChat();
+    document.body.appendChild(fab);
+
+    const container = document.createElement('div');
+    container.id = 'sds-container';
+    container.innerHTML = `
+      <!-- Header -->
+      <div style="background:linear-gradient(135deg,#1e3a8a,#312e81,#1e293b);color:#fff;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(96,165,250,0.3);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="position:relative;">
+            <div style="width:36px;height:36px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#1e293b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;box-shadow:0 2px 8px rgba(245,158,11,0.3);">🛡️</div>
+            <span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border-radius:50%;border:2px solid #1e293b;animation:sdsPulse 2s infinite;"></span>
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;">System Diagnostics <span style="background:rgba(34,197,94,0.2);color:#4ade80;font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid rgba(34,197,94,0.4);animation:sdsPulse 2s infinite;">LIVE</span></div>
+            <div style="font-size:10px;color:#94a3b8;">Secure Runtime Bridge | <span id="sds-admin-label" style="color:#f59e0b;font-weight:600;">Payroll Admin</span></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;">
+          <button id="sds-min-btn" style="background:none;border:none;color:#64748b;cursor:pointer;padding:6px;font-size:16px;" title="Minimize">–</button>
+          <button id="sds-close-btn" style="background:none;border:none;color:#64748b;cursor:pointer;padding:6px;font-size:16px;" title="Close">✕</button>
+        </div>
+      </div>
+
+      <!-- Site indicator + channel tabs -->
+      <div style="background:#0f172a;padding:6px 12px;border-bottom:1px solid #1e293b;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span id="sds-peer-left" style="background:rgba(37,99,235,0.2);color:#60a5fa;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(59,130,246,0.3);">PAYROLL</span>
+          <span id="sds-peer-arrow" style="color:#334155;font-size:12px;">↔</span>
+          <span id="sds-peer-right" style="background:rgba(220,38,38,0.2);color:#fca5a5;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(239,68,68,0.3);">UNICAT</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <button id="sds-ch-cross" style="background:#1e3a8a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="Chat with Unicat admin (cross-site)">Cross-Site</button>
+          <button id="sds-ch-admins" style="background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="Chat/call other payroll admins">Admins</button>
+          <select id="sds-target-admin" style="display:none;background:#0f172a;color:#f59e0b;font-size:9px;font-weight:700;border:1px solid #334155;border-radius:4px;padding:2px 4px;cursor:pointer;max-width:110px;" title="Target admin"></select>
+        </div>
+      </div>
+
+      <!-- Call controls -->
+      <div style="background:#0f172a;padding:6px 12px;border-bottom:1px solid #1e293b;display:flex;align-items:center;justify-content:flex-end;gap:4px;">
+        <button id="sds-call-voice" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="Voice Call">📞 Voice</button>
+        <button id="sds-call-video" style="background:#d97706;color:#1e293b;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="Video Call">📹 Video</button>
+        <select id="sds-autodelete" style="background:#0f172a;color:#60a5fa;font-size:9px;font-weight:700;border:1px solid #334155;border-radius:4px;padding:2px 4px;cursor:pointer;" title="Auto-delete messages after read">
+          <option value="0">Auto-del: Never</option>
+          <option value="5">5s</option>
+          <option value="10">10s</option>
+          <option value="15">15s</option>
+          <option value="60">1 min</option>
+        </select>
+        <span id="sds-msg-count" style="font-size:9px;color:#475569;font-family:monospace;margin-left:4px;">0 msgs</span>
+      </div>
+
+      <!-- Messages feed -->
+      <div id="sds-feed" style="flex:1;padding:12px;overflow-y:auto;background:#0f172a;"></div>
+
+      <!-- File preview -->
+      <div id="sds-file-preview" style="display:none;padding:6px 12px;background:#1e293b;border-top:1px solid #334155;align-items:center;justify-content:space-between;"></div>
+
+      <!-- Emoji Picker -->
+      <div id="sds-emoji-picker" style="display:none;background:#1e293b;border-top:1px solid #334155;padding:8px;"></div>
+
+      <!-- Input bar -->
+      <div id="sds-input-bar" style="padding:10px;background:#1e293b;border-top:1px solid #334155;display:flex;align-items:center;gap:8px;">
+        <button id="sds-emoji-btn" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:18px;padding:4px;" title="Emoji">😊</button>
+        <button id="sds-attach-btn" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:18px;padding:4px;" title="Attach file">📎</button>
+        <input type="file" id="sds-file-input" style="display:none;">
+        <input type="text" id="sds-input" placeholder="Secure message..." style="flex:1;font-size:12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:12px;padding:8px 12px;outline:none;font-family:'Plus Jakarta Sans',system-ui,sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#334155'">
+        <button id="sds-send-btn" style="background:linear-gradient(135deg,#1e3a8a,#312e81);color:#fff;border:none;border-radius:12px;padding:8px 12px;cursor:pointer;font-size:14px;box-shadow:0 2px 8px rgba(30,58,138,0.3);" title="Send">➤</button>
+      </div>
+    `;
+    document.body.appendChild(container);
+
+    // Event listeners
+    document.getElementById('sds-close-btn').onclick = () => toggleChat(false);
+    document.getElementById('sds-min-btn').onclick = () => toggleChat(false);
+    document.getElementById('sds-send-btn').onclick = sendMessage;
+    document.getElementById('sds-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') sendMessage();
+    });
+    document.getElementById('sds-attach-btn').onclick = () => {
+      document.getElementById('sds-file-input').click();
+    };
+    document.getElementById('sds-file-input').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) { alert('File must be under 5 MB'); return; }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        attachedFile = { name: file.name, data: ev.target.result };
+        updateFilePreview();
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    });
+
+    // Call buttons (route by channel)
+    document.getElementById('sds-call-voice').onclick = () =>
+      channelMode === 'admins' ? initiateAdminCall('voice') : initiateCall('voice');
+    document.getElementById('sds-call-video').onclick = () =>
+      channelMode === 'admins' ? initiateAdminCall('video') : initiateCall('video');
+
+    // Channel tabs
+    document.getElementById('sds-ch-cross').onclick = () => setChannel('cross');
+    document.getElementById('sds-ch-admins').onclick = () => setChannel('admins');
+
+    // Target admin selector
+    document.getElementById('sds-target-admin').onchange = function() {
+      targetAdmin = this.value;
+    };
+
+    // Auto-delete selector
+    const autoDeleteSel = document.getElementById('sds-autodelete');
+    if (autoDeleteSel) {
+      autoDeleteSel.value = String(deleteAfterSeconds);
+      autoDeleteSel.onchange = () => {
+        deleteAfterSeconds = parseInt(autoDeleteSel.value, 10) || 0;
+        saveAutoDeleteSetting();
+        clearAutoDeleteTimers();
+        firstSeenAt.clear();
+        loadMessages();
+      };
+    }
+
+    // Emoji picker
+    const EMOJIS = ['😊','😂','🇱🇰','📚','❤️','👍','🔥','🎉','💡','🚀','🙏','😍','😎','✨','👏','⭐','😢','😤','🤔','💪','🤝','📎','✅','❌','⚡','🎯','💬','🔒','🛡️','👋','😁','🥳'];
+    let emojiPickerOpen = false;
+    const emojiPicker = document.getElementById('sds-emoji-picker');
+    const emojiGrid = document.createElement('div');
+    emojiGrid.style.cssText = 'display:grid;grid-template-columns:repeat(8,1fr);gap:2px;';
+    EMOJIS.forEach(emoji => {
+      const btn = document.createElement('button');
+      btn.textContent = emoji;
+      btn.style.cssText = 'background:none;border:none;font-size:20px;cursor:pointer;padding:4px;border-radius:6px;transition:background 0.15s;';
+      btn.onmouseover = () => { btn.style.background = 'rgba(96,165,250,0.2)'; };
+      btn.onmouseout = () => { btn.style.background = 'none'; };
+      btn.onclick = () => {
+        const input = document.getElementById('sds-input');
+        if (input) input.value += emoji;
+        input.focus();
+      };
+      emojiGrid.appendChild(btn);
+    });
+    if (emojiPicker) emojiPicker.appendChild(emojiGrid);
+
+    document.getElementById('sds-emoji-btn').onclick = () => {
+      emojiPickerOpen = !emojiPickerOpen;
+      if (emojiPicker) emojiPicker.style.display = emojiPickerOpen ? 'block' : 'none';
+    };
+  }
+
+  function toggleChat(forceState) {
+    const container = document.getElementById('sds-container');
+    const fab = document.getElementById('sds-fab');
+    if (!container || !fab) return;
+
+    chatOpen = forceState !== undefined ? forceState : !chatOpen;
+
+    if (chatOpen) {
+      container.style.display = 'flex';
+      fab.style.display = 'none';
+      startPolling();
+    } else {
+      container.style.display = 'none';
+      fab.style.display = 'flex';
+      stopPolling();
+    }
+  }
+
+  // ── Settings-page-only launcher visibility ──────────────────────
+  function isSettingsViewActive() {
+    const el = document.getElementById('view-settings');
+    return !!(el && el.classList.contains('active-view'));
+  }
+
+  function updateChatLauncherVisibility() {
+    const show = isSettingsViewActive();
+    // Close the widget when navigating away from Settings
+    if (!show && chatOpen) toggleChat(false);
+    const fab = document.getElementById('sds-fab');
+    if (fab) fab.style.display = show ? 'flex' : 'none';
+  }
+
+  function initSettingsOnlyVisibility() {
+    updateChatLauncherVisibility();
+    window.addEventListener('hashchange', updateChatLauncherVisibility);
+    // Fallback: catch direct class swaps that don't touch the hash
+    const views = document.querySelectorAll('.app-view');
+    if (views.length && 'MutationObserver' in window) {
+      const observer = new MutationObserver(updateChatLauncherVisibility);
+      views.forEach(v => observer.observe(v, { attributes: true, attributeFilter: ['class'] }));
+    }
+  }
+
+  // ── Channel switching ───────────────────────────────────────────
+  function refreshAdminSelect() {
+    const sel = document.getElementById('sds-target-admin');
+    if (!sel) return;
+    let users = [];
+    try {
+      users = (window.auth && typeof auth.getUsers === 'function') ? auth.getUsers() : [];
+    } catch (e) { users = []; }
+    const admins = users.filter(u => u.role === 'admin' && u.username !== MY_USERNAME);
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All admins</option>' + admins.map(u =>
+      `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`
+    ).join('');
+    if (admins.some(u => u.username === current)) sel.value = current;
+    sel.style.display = (channelMode === 'admins' && admins.length > 0) ? 'inline-block' : 'none';
+  }
+
+  function setChannel(mode) {
+    channelMode = mode;
+    targetAdmin = '';
+    const sel = document.getElementById('sds-target-admin');
+    if (sel) sel.value = '';
+    const left = document.getElementById('sds-peer-left');
+    const right = document.getElementById('sds-peer-right');
+    const crossBtn = document.getElementById('sds-ch-cross');
+    const adminsBtn = document.getElementById('sds-ch-admins');
+    const input = document.getElementById('sds-input');
+    const activeStyle = 'background:#1e3a8a;color:#fff;border:none;';
+    const idleStyle = 'background:transparent;color:#94a3b8;border:1px solid #334155;';
+    if (mode === 'admins') {
+      if (left) left.textContent = 'ADMINS';
+      if (right) right.textContent = MY_USERNAME.toUpperCase();
+      if (input) input.placeholder = 'Message payroll admins...';
+      if (crossBtn) crossBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
+      if (adminsBtn) adminsBtn.style.cssText = activeStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
+    } else {
+      if (left) left.textContent = 'PAYROLL';
+      if (right) right.textContent = 'UNICAT';
+      if (input) input.placeholder = 'Secure message...';
+      if (crossBtn) crossBtn.style.cssText = activeStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
+      if (adminsBtn) adminsBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
+    }
+    clearAutoDeleteTimers();
+    refreshAdminSelect();
+    loadMessages();
+  }
+
+  // ── Polling ──────────────────────────────────────────────────────
+  async function loadMessages() {
+    const fetched = await firestoreFetchMessages();
+    messages = fetched.filter(m => channelMode === 'cross'
+      ? !m.recipient
+      : (m.senderSite === SITE_ID && (m.recipient === '' || m.recipient === MY_USERNAME || m.senderAdmin === MY_USERNAME)));
+    renderMessages();
+    messages.forEach(scheduleAutoDelete);
+    const countEl = document.getElementById('sds-msg-count');
+    if (countEl) countEl.textContent = messages.length + ' msgs';
+    if (channelMode === 'admins') refreshAdminSelect();
+  }
+
+  function startPolling() {
+    loadMessages();
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(loadMessages, 3000);
+  }
+
+  function stopPolling() {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  }
+
+  // ── Init ─────────────────────────────────────────────────────────
+  function init() {
+    try {
+      const u = (window.auth && typeof auth.getCurrentUser === 'function') ? auth.getCurrentUser() : null;
+      if (u && u.username) {
+        MY_USERNAME = u.username;
+        ADMIN_NAME = u.username;
+      } else {
+        const legacy = JSON.parse(localStorage.getItem('hr_current_user') || '{}');
+        if (legacy && legacy.username) {
+          MY_USERNAME = legacy.username;
+          ADMIN_NAME = legacy.username;
+        }
+      }
+    } catch (e) {}
+
+    loadAutoDeleteSetting();
+
+    injectStyles();
+    buildUI();
+
+    const label = document.getElementById('sds-admin-label');
+    if (label) label.textContent = ADMIN_NAME;
+
+    // Launcher (🛡️) only shows on the Settings page
+    initSettingsOnlyVisibility();
+
+    // Public API for the Settings page (admin-to-admin chat/call)
+    window.SDS = {
+      openChat: function (channel, target) {
+        setChannel(channel === 'admins' ? 'admins' : 'cross');
+        if (target) {
+          targetAdmin = target;
+          const sel = document.getElementById('sds-target-admin');
+          if (sel) sel.value = target;
+        }
+        toggleChat(true);
+      },
+      call: function (target, type) {
+        setChannel('admins');
+        targetAdmin = target || '';
+        const sel = document.getElementById('sds-target-admin');
+        if (sel && target) sel.value = target;
+        toggleChat(true);
+        initiateAdminCall(type || 'voice');
+      },
+    };
+
+    // Initialize PeerJS for voice/video calls
+    initPeerJS();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Management System | Payroll & HR Portal</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- CSS -->
+    <link rel="stylesheet" href="style.css?v=5">
+<link rel="icon" href="https://brandspire-lk.vercel.app/images/bs-logo.png" type="image/png">
+<meta property="og:image" content="https://brandspire-lk.vercel.app/images/bs-logo.png">
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyB_xqN7DQVQGXk1Amph6DS9eqWXr_H3Ykw",
+    authDomain: "hr-management-system-2aa97.firebaseapp.com",
+    projectId: "hr-management-system-2aa97",
+    storageBucket: "hr-management-system-2aa97.firebasestorage.app",
+    messagingSenderId: "230747654399",
+    appId: "1:230747654399:web:12146b4f81cb4c48f5e4ca",
+    measurementId: "G-E5WFLRXTLJ"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  window.db = getFirestore(app);
+  window.firebaseFirestore = { doc, setDoc, getDoc, collection, getDocs };
+</script>
+</head>
+<body>
+    <div id="firebase-loading-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+        <div class="loader" style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
+        <div style="margin-top:20px; font-family:'Plus Jakarta Sans', sans-serif; font-size:16px; font-weight:600; color:#1e293b;">Connecting to Cloud Database...</div>
+        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+    </div>
+    <div id="protected-app" style="display:none;">
+                <div class="app-container">
+                    <!-- Sidebar Navigation -->
+                    <aside class="sidebar">
+                        <div class="logo-area">
+                            <div class="logo-icon"><i data-lucide="building-2"></i></div>
+                            <span class="logo-text" style="font-size:15px;line-height:1.3;">HR Management<br><span>System</span></span>
+                            <div id="logo-user-info" style="margin-top:8px;padding:6px 10px;background:rgba(255,255,255,0.08);border-radius:8px;text-align:center;">
+                                <div id="logo-username" style="font-size:13px;font-weight:600;color:#fff;"></div>
+                                <div id="logo-userrole" style="font-size:11px;color:rgba(255,255,255,0.55);text-transform:capitalize;"></div>
+                            </div>
+                        </div>
+                        
+                        <nav class="sidebar-nav">
+                            <a href="#dashboard" class="nav-item active" data-view="dashboard">
+                                <i data-lucide="layout-dashboard"></i>
+                                <span>Dashboard</span>
+                            </a>
+                            <a href="#attendance" class="nav-item" data-view="attendance">
+                                <i data-lucide="clock"></i>
+                                <span>Attendance &amp; OT</span>
+                            </a>
+                            <a href="#employees" class="nav-item" data-view="employees">
+                                <i data-lucide="users"></i>
+                                <span>Employees</span>
+                            </a>
+
+                            <a href="#payroll" class="nav-item" data-view="payroll">
+                                <i data-lucide="wallet"></i>
+                                <span>Process Payroll</span>
+                            </a>
+                            <a href="#reports" class="nav-item" data-view="reports">
+                                <i data-lucide="file-spreadsheet"></i>
+                                <span>Statutory Reports</span>
+                            </a>
+                            <a href="#settings" class="nav-item" data-view="settings">
+                                <i data-lucide="settings"></i>
+                                <span>Settings</span>
+                            </a>
+
+                        </nav>
+                        
+                        <div class="sidebar-footer">
+                            <button id="logoutBtn" style="width:100%; padding:8px; background:linear-gradient(135deg,#e74c3c,#c0392b); color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600; font-size:13px; margin-bottom:10px;">Logout</button>
+                            <div style="text-align:center; padding:10px 4px; border-top:1px solid rgba(255,255,255,0.15); margin-top:4px;">
+                                <img src="https://brandspire-lk.vercel.app/images/bs-logo.png" alt="Brandspire Logo" style="height:26px; vertical-align:middle; margin-right:5px;">
+                                <br>
+                                <span style="font-size:12px; color:#aab2bd;">Powered by </span>
+                                <a href="https://brandspire-lk.vercel.app/" target="_blank" style="font-size:13px; font-weight:800; color:#f1c40f; text-decoration:none; letter-spacing:0.5px;">Brandspire</a>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <!-- Main Content Area -->
+                    <main class="main-content">
+                        <!-- Header -->
+                        <header class="top-header">
+                            <div class="header-title">
+                                <h1 id="view-title">Dashboard Overview</h1>
+                                <p id="view-subtitle" class="text-muted">Welcome back, here's your company snapshot.</p>
+                            </div>
+                            <div class="header-actions" style="display: none;">
+                            </div>
+                        </header>
+
+            <!-- Views Container -->
+            <div class="view-content">
+                <!-- VIEW: Dashboard -->
+                <section id="view-dashboard" class="app-view active-view">
+                    <!-- Stats Grid -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon purple"><i data-lucide="users"></i></div>
+                            <div class="stat-details">
+                                <span class="stat-label">Total Employees</span>
+                                <h3 class="stat-value" id="stat-total-employees">0</h3>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green"><i data-lucide="banknote"></i></div>
+                            <div class="stat-details">
+                                <span class="stat-label">Payroll Run (Month)</span>
+                                <h3 class="stat-value" id="stat-total-payroll">$0.00</h3>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon orange"><i data-lucide="clock"></i></div>
+                            <div class="stat-details">
+                                <span class="stat-label">Total OT Hours</span>
+                                <h3 class="stat-value" id="stat-ot-hours">0h</h3>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-grid" style="grid-template-columns: 1fr; margin-bottom: 24px;">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3><i data-lucide="user-x" style="vertical-align:middle; width:18px; color:var(--danger-color);"></i> Daily Absentees</h3>
+                                <input type="date" id="dash-absent-date" class="form-input" style="max-width: 200px;">
+                            </div>
+                            <div class="card-body">
+                                <div id="dash-absentees-list" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                    <!-- Absentees will be loaded here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts & Recent Actions Grid -->
+                    <div class="dashboard-grid">
+                        <div class="card chart-card">
+                            <div class="card-header">
+                                <h3>Department Distribution</h3>
+                            </div>
+                            <div class="card-body chart-container">
+                                <canvas id="chart-departments"></canvas>
+                            </div>
+                        </div>
+                        <div class="card chart-card">
+                            <div class="card-header">
+                                <h3>Monthly Expenses & OT</h3>
+                            </div>
+                            <div class="card-body chart-container">
+                                <canvas id="chart-expenses"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: Employees -->
+                <section id="view-employees" class="app-view">
+                    <div class="card">
+                        <div class="table-header">
+                            <div class="search-box">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="search-employees" placeholder="Search by name, department, role, ID...">
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-secondary btn-icon" id="btn-print-employees" title="Print Employees">
+                                    <i data-lucide="printer"></i> Print Table
+                                </button>
+                                <button class="btn btn-primary" id="btn-add-employee-modal">
+                                    <i data-lucide="plus"></i> Add New Employee
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-employees">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Name</th>
+                                        <th>Role / Department</th>
+                                        <th>Joining Date</th>
+                                        <th>ID No / DL No</th>
+                                        <th>Telephone No</th>
+                                        <th>Address</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: Attendance -->
+                <section id="view-attendance" class="app-view">
+                    <div class="card">
+<div class="table-header">
+    <div class="filter-group">
+        <label for="attendance-date-filter">Date:</label>
+        <input type="date" id="attendance-date-filter" class="form-input">
+    </div>
+    <div class="filter-group" style="margin-left:12px;">
+        <div class="search-box">
+            <i data-lucide="search"></i>
+            <input type="text" id="attendance-search" placeholder="Search...">
+        </div>
+    </div>
+    <input type="file" id="attendance-csv-upload" accept=".csv" style="display:none">
+    <button class="btn btn-secondary btn-icon" id="btn-import-attendance" onclick="document.getElementById('attendance-csv-upload').click()" style="margin-right:8px;">
+        <i data-lucide="upload"></i> Import CSV
+    </button>
+    <button class="btn btn-primary" id="btn-log-attendance">
+        <i data-lucide="plus"></i> Log Work Entry
+    </button>
+    <button class="btn btn-warning btn-icon" id="btn-mark-leaves" style="margin-left:8px;" title="Mark Future Leaves">
+        <i data-lucide="calendar-off"></i> Mark Leaves (Date Range)
+    </button>
+    <button class="btn btn-secondary btn-icon" id="btn-monthly-attendance" style="margin-left:8px;" title="Monthly Report">
+        <i data-lucide="calendar-days"></i> Monthly Report
+    </button>
+    <button class="btn btn-secondary btn-icon" id="btn-print-attendance" style="margin-left:8px;" title="Print Daily">
+        <i data-lucide="printer"></i> Print Daily
+    </button>
+</div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-attendance">
+                                <thead>
+                                    <tr>
+                                        <th>Employee</th>
+                                        <th>Date</th>
+                                        <th>In Time</th>
+                                        <th>Out Time</th>
+                                        <th>Work Hours</th>
+                                        <th>Normal OT</th>
+                                        <th>Special OT (Wknd)</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: Payroll -->
+                <section id="view-payroll" class="app-view">
+                    <div class="card">
+                        <div class="table-header" id="payroll-table-header" style="position: sticky; top: 0; z-index: 20; background: var(--bg-card); padding: 10px 0; margin-top: -10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                            <div class="filter-group" style="display: flex; align-items: center; gap: 15px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label for="payroll-month-select">Pay Cycle:</label>
+                                    <input type="month" id="payroll-month-select" class="form-input">
+                                </div>
+                                <div class="search-box" style="width: 250px;">
+                                    <i data-lucide="search"></i>
+                                    <input type="text" id="payroll-search-input" placeholder="Search employee...">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-secondary" id="btn-open-dept-print">
+                                    <i data-lucide="printer"></i> Slip Print
+                                </button>
+                                <button class="btn btn-success" id="btn-process-payroll">
+                                    <i data-lucide="cpu"></i> Process & Recalculate
+                                </button>
+                            </div>>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-payroll">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Name</th>
+                                        <th>Basic Salary</th>
+                                        <th>OT Pay</th>
+                                        <th>No-Pay Deduct.</th>
+                                        <th>Net Pay</th>
+                                        <th>Adjustments</th>
+                                        <th>Payslip</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW: Settings -->
+                <section id="view-settings" class="app-view">
+                    <div class="settings-grid">
+                        <!-- Left Panel: Base settings -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Company Configurations</h3>
+                            </div>
+                            <div class="card-body">
+                                <form id="form-settings">
+                                    <div class="form-group">
+                                        <label for="set-std-work-days">Standard Work Days / Month</label>
+                                        <input type="number" id="set-std-work-days" class="form-input" min="1" max="31">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="set-paid-leaves">Paid Leaves Allowed / Month (Weekends etc.)</label>
+                                        <input type="number" id="set-paid-leaves" class="form-input" min="0" max="31">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="set-std-work-hours">Standard Work Hours / Day</label>
+                                        <input type="number" id="set-std-work-hours" class="form-input" min="1" max="24">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="set-normal-ot-rate">Normal Overtime Multiplier (Weekdays)</label>
+                                        <input type="number" id="set-normal-ot-rate" class="form-input" step="0.1" min="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="set-special-ot-rate">Special Overtime Multiplier (Weekends/Holidays)</label>
+                                        <input type="number" id="set-special-ot-rate" class="form-input" step="0.1" min="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="set-tax-rate">Standard Statutory Tax Rate (%)</label>
+                                        <input type="number" id="set-tax-rate" class="form-input" min="0" max="100">
+                                    </div>
+                                    <button type="submit" class="btn btn-primary" style="width: 100%;">Save Config</button>
+                                </form>
+                                
+                                <div style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                                    <h4 style="color: var(--danger); margin-bottom: 10px;">Advanced Options</h4>
+                                    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">Use this option to safely renumber all existing employees sequentially (e.g., EMP101, EMP102) and fix any ID conflicts from deleted records.</p>
+                                    <button class="btn btn-danger" id="btn-reset-emp-ids" style="width: 100%; margin-bottom: 20px;">
+                                        <i data-lucide="alert-triangle"></i> Re-number All Employee IDs
+                                    </button>
+                                    
+                                    <div style="border: 1px solid var(--border-color); padding: 15px; border-radius: var(--radius-md); background: rgba(220, 38, 38, 0.05);">
+                                        <h5 style="color: var(--danger); margin-bottom: 10px;">Clear Employee Records</h5>
+                                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                                            <input type="text" id="clear-emp-id-input" class="form-input" placeholder="e.g. EMP102" style="flex: 1;">
+                                        </div>
+                                        <button class="btn btn-danger" id="btn-clear-emp-data" style="width: 100%;">
+                                            <i data-lucide="trash-2"></i> Clear Attendance & Leaves
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Right Panel: Roles, Departments, Allowances -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Portal Customization</h3>
+                            </div>
+                            <div class="card-body">
+                                <!-- Departments Manager -->
+                                <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 8px;">Manage Departments</h4>
+                                <div class="form-row" style="margin-bottom: 8px;">
+                                    <input type="text" id="new-dept-name" class="form-input" style="flex-grow: 1; padding: 8px 12px;" placeholder="New Dept Name">
+                                    <button class="btn btn-primary btn-icon" id="btn-add-dept" style="padding: 8px 12px;"><i data-lucide="plus"></i> Add</button>
+                                </div>
+                                <div class="settings-list-container" id="settings-dept-list"></div>
+
+                                <!-- Designations Manager -->
+                                <h4 style="font-size: 13px; font-weight: 700; margin: 16px 0 8px;">Manage Designations / Roles</h4>
+                                <div class="form-row" style="margin-bottom: 8px;">
+                                    <input type="text" id="new-desig-name" class="form-input" style="flex-grow: 1; padding: 8px 12px;" placeholder="New Role Name">
+                                    <button class="btn btn-primary btn-icon" id="btn-add-desig" style="padding: 8px 12px;"><i data-lucide="plus"></i> Add</button>
+                                </div>
+                                <div class="settings-list-container" id="settings-desig-list"></div>
+
+                                <!-- Custom Allowances Manager -->
+                                <h4 style="font-size: 13px; font-weight: 700; margin: 16px 0 8px;">Manage Monthly Allowances</h4>
+                                <div class="form-row" style="margin-bottom: 8px;">
+                                    <input type="text" id="new-allowance-name" class="form-input" style="flex-grow: 1; padding: 8px 12px;" placeholder="e.g. Fuel Allowance">
+                                    <input type="number" id="new-allowance-value" class="form-input" style="width: 100px; padding: 8px 12px;" placeholder="Value" value="0">
+                                    <button class="btn btn-primary btn-icon" id="btn-add-allowance" style="padding: 8px 12px;"><i data-lucide="plus"></i> Add</button>
+                                </div>
+                                <div class="settings-list-container" id="settings-allowance-list"></div>
+                            </div>
+                        </div>
+                    </div>
+                        <!-- User Management (Admin Only) -->
+                        <div id="users-section" class="admin-only" style="margin-top: 24px; display:none;">
+                            <div class="dashboard-grid" style="grid-template-columns: 1fr;">
+                                <!-- Create New User Card -->
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3><i data-lucide="user-plus" style="width:18px;height:18px;vertical-align:middle;margin-right:6px;"></i> Create New User</h3>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                                            <div class="form-group" style="flex:1;min-width:140px;">
+                                                <label for="new-user-name">Username</label>
+                                                <input type="text" id="new-user-name" class="form-input" placeholder="min 3 characters">
+                                            </div>
+                                            <div class="form-group" style="flex:1;min-width:140px;">
+                                                <label for="new-user-pass">Password</label>
+                                                <input type="password" id="new-user-pass" class="form-input" placeholder="min 4 characters">
+                                            </div>
+                                            <div class="form-group" style="flex:1;min-width:120px;">
+                                                <label for="new-user-role">Role</label>
+                                                <select id="new-user-role" class="form-input">
+                                                    <option value="employee">Employee</option>
+                                                    <option value="manager">Manager</option>
+                                                    <option value="admin">Admin</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group" style="flex:1;min-width:120px; position:relative;">
+                                                <label>Department(s) / Access</label>
+                                                <div id="dept-dropdown-toggle" class="form-input" style="cursor: pointer; display:flex; justify-content:space-between; align-items:center; background:#fff; user-select:none;">
+                                                    <span id="dept-dropdown-text" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Select...</span>
+                                                    <i data-lucide="chevron-down" style="width:14px;height:14px; flex-shrink:0;"></i>
+                                                </div>
+                                                <div id="new-user-dept-checkboxes" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; width: 100%; min-width: 200px; max-height: 150px; overflow-y: auto; border: 1px solid var(--border-color); padding: 8px; border-radius: 4px; background: #fff; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                                                    <!-- Checkboxes will be populated here -->
+                                                </div>
+                                            </div>
+                                            <div class="form-group" style="min-width:120px;">
+                                                <button class="btn btn-primary" id="btn-create-user" style="height:38px;white-space:nowrap;">
+                                                    <i data-lucide="plus" style="width:14px;height:14px;vertical-align:middle;margin-right:4px;"></i> Create User
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div id="create-user-msg" style="margin-top:8px;font-size:13px;font-weight:500;min-height:1.2em;"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Users Table -->
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3><i data-lucide="shield" style="width:18px;height:18px;vertical-align:middle;margin-right:6px;"></i> All Users</h3>
+                                        <span class="text-muted" style="font-size:12px;" id="user-count-label"></span>
+                                    </div>
+                                    <div class="card-body" style="overflow-x:auto;">
+                                        <table class="data-table" id="table-users">
+                                            <thead>
+                                                <tr>
+                                                    <th>Username</th>
+                                                    <th>Role</th>
+                                                    <th>Department</th>
+                                                    <th>Status</th>
+                                                    <th style="text-align:center;">Access</th>
+                                                    <th style="text-align:center;">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                </section>
+
+                <!-- VIEW: Reports -->
+                <section id="view-reports" class="app-view">
+                    <div class="card" style="width: 100%;">
+                        <div class="card-header">
+                            <h3>Sri Lankan Statutory Reports (EPF/ETF)</h3>
+                            <p class="text-muted">Generate and print official compliance forms for the Department of Labour.</p>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row" style="align-items: flex-end; margin-bottom: 24px;">
+                                <div class="form-group col-6">
+                                    <label for="report-month-select">Select Contribution Month</label>
+                                    <input type="month" id="report-month-select" class="form-input" required>
+                                </div>
+                                <div class="form-group col-6">
+                                    <label for="report-epf-dept">Select Department</label>
+                                    <select id="report-epf-dept" class="form-input" style="padding: 6px 12px; font-size: 13px; min-height: 38px;"></select>
+                                </div>
+                            </div>
+                            
+                            <div class="dashboard-grid">
+                                <div class="card" style="border: 1px solid var(--border-color); text-align: left; padding: 24px; margin-bottom: 0;">
+                                    <div style="text-align: center;">
+                                        <div class="stat-icon purple" style="margin: 0 auto 16px;"><i data-lucide="file-text"></i></div>
+                                        <h4 style="margin-bottom: 8px;">EPF C-Form (Form C)</h4>
+                                        <p class="text-muted" style="font-size: 12px; margin-bottom: 16px;">Monthly return format including member names, NIC numbers, member numbers, mobile numbers, and 12%+8% contributions.</p>
+                                    </div>
+
+                                    <div class="form-group" style="margin-bottom: 12px;">
+                                        <label style="font-size: 12px; font-weight: 500;">EPF Cheque No.</label>
+                                        <input type="text" id="report-epf-cheque" class="form-input" placeholder="e.g. 123456" style="padding: 6px 12px; font-size: 13px; min-height: 32px;">
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 12px;">
+                                        <label style="font-size: 12px; font-weight: 500;">EPF Reference No.</label>
+                                        <input type="text" id="report-epf-ref" class="form-input" placeholder="e.g. 25090340455" style="padding: 6px 12px; font-size: 13px; min-height: 32px;">
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 16px;">
+                                        <label style="font-size: 12px; font-weight: 500;">EPF Bank & Branch Name</label>
+                                        <input type="text" id="report-epf-bank" class="form-input" placeholder="e.g. BOC, Nittambuwa" style="padding: 6px 12px; font-size: 13px; min-height: 32px;">
+                                    </div>
+                                    <button class="btn btn-primary" id="btn-gen-epf-c" style="width: 100%; margin-bottom: 8px;">Generate Form C</button>
+                                    <button class="btn btn-outline" id="btn-print-epf-cheque" style="width: 100%; border: 1px solid var(--primary-color); color: var(--primary-color);">Print EPF Cheque</button>
+                                </div>
+                                
+                                <div class="card" style="border: 1px solid var(--border-color); text-align: center; padding: 24px; margin-bottom: 0;">
+                                    <div class="stat-icon green" style="margin: 0 auto 16px;"><i data-lucide="file-spreadsheet"></i></div>
+                                    <h4 style="margin-bottom: 8px;">ETF R4 Remittance Form</h4>
+                                    <p class="text-muted" style="font-size: 12px; margin-bottom: 16px; text-align: left;">Advice of remittance return for the Employees' Trust Fund Board including 3% member contributions.</p>
+                                    <div style="text-align: left;">
+                                        <div class="form-group" style="margin-bottom: 12px;">
+                                            <label style="font-size: 12px; font-weight: 500;">ETF Cheque No.</label>
+                                            <input type="text" id="report-etf-cheque" class="form-input" placeholder="e.g. 987654" style="padding: 6px 12px; font-size: 13px; min-height: 32px;">
+                                        </div>
+                                        <div class="form-group" style="margin-bottom: 16px;">
+                                            <label style="font-size: 12px; font-weight: 500;">ETF Bank & Branch Name</label>
+                                            <input type="text" id="report-etf-bank" class="form-input" placeholder="e.g. Seylan, Yakkala" style="padding: 6px 12px; font-size: 13px; min-height: 32px;">
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-success" id="btn-gen-etf-r4" style="width: 100%; margin-bottom: 8px;">Generate Form R4</button>
+                                    <button class="btn btn-outline" id="btn-print-etf-cheque" style="width: 100%; border: 1px solid var(--success-color); color: var(--success-color);">Print ETF Cheque</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+
+            </div>
+        </main>
+
+    
+      
+    
+    </div>
+
+    <!-- MODAL: Department Form -->
+    <div id="modal-department" class="modal-overlay">
+        <div class="modal-container" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3 id="modal-department-title">Add / Edit Department</h3>
+                <button class="modal-close" id="btn-close-dept-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-department">
+                    <input type="hidden" id="dept-edit-index">
+                    <div class="form-group">
+                        <label for="dept-name">Department Name (Company/Branch) <span class="required">*</span></label>
+                        <input type="text" id="dept-name" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="dept-address">Address</label>
+                        <textarea id="dept-address" class="form-input" rows="3" placeholder="e.g. NO. 17B, GROUND FLOOR,&#10;NEW SUPER MARKET,&#10;NITTAMBUWA."></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="dept-epf">E.P.F. Registration No.</label>
+                            <input type="text" id="dept-epf" class="form-input" placeholder="e.g. GP/23938">
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="dept-phone">Telephone</label>
+                            <input type="text" id="dept-phone" class="form-input" placeholder="e.g. 2206645">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="dept-fax">Fax</label>
+                            <input type="text" id="dept-fax" class="form-input" placeholder="e.g. 2206651">
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="dept-email">Email</label>
+                            <input type="email" id="dept-email" class="form-input" placeholder="e.g. info@company.com">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="dept-web">Website</label>
+                        <input type="text" id="dept-web" class="form-input" placeholder="e.g. www.epf.lk">
+                    </div>
+                    <div class="modal-footer" style="padding: 16px 0 0 0;">
+                        <button type="button" class="btn btn-outline" id="btn-cancel-dept">Cancel</button>
+                        <button type="submit" class="btn btn-primary" id="btn-save-dept">Save Department</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Employee View -->
+    <div id="modal-employee-view" class="modal-overlay">
+        <div class="modal-container modal-medium">
+            <div class="modal-header">
+                <h3>Employee Details</h3>
+                <button class="modal-close" id="btn-close-employee-view-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="employee-view-content" style="padding: 10px;">
+                    <!-- Content will be dynamically inserted here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btn-close-employee-view-footer">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Employee Form -->
+    <div id="modal-employee" class="modal-overlay">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 id="modal-employee-title">Add New Employee</h3>
+                <button class="modal-close" id="btn-close-employee-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-employee">
+                    <input type="hidden" id="emp-id">
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="emp-first-name">First Name</label>
+                            <input type="text" id="emp-first-name" class="form-input" required>
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="emp-last-name">Last Name</label>
+                            <input type="text" id="emp-last-name" class="form-input" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="emp-department">Department</label>
+                            <select id="emp-department" class="form-input" required>
+                                <!-- Dynamic options loaded from settings -->
+                            </select>
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="emp-designation">Designation / Role</label>
+                            <select id="emp-designation" class="form-input" required>
+                                <!-- Dynamic options loaded from settings -->
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="emp-base-salary">Base Salary (LKR)</label>
+                            <input type="number" id="emp-base-salary" class="form-input" min="0" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="emp-join-date">Join Date</label>
+                            <input type="date" id="emp-join-date" class="form-input" required>
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="emp-end-date">End Date (Inactive)</label>
+                            <input type="date" id="emp-end-date" class="form-input">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="emp-bank-acc">Bank Account No.</label>
+                            <input type="text" id="emp-bank-acc" class="form-input" required>
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="emp-dl-number">Driving Licence No. (Optional)</label>
+                            <input type="text" id="emp-dl-number" class="form-input">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-12" style="display: flex; align-items: center; gap: 10px;">
+                            <input type="checkbox" id="emp-epf-eligible" checked style="width: auto; margin-top: 0;">
+                            <label for="emp-epf-eligible" style="margin-bottom: 0;">Eligible for EPF/ETF</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="btn-cancel-employee-modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Employee</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Mark Leaves -->
+    <div id="modal-leaves" class="modal-overlay">
+        <div class="modal-container modal-small">
+            <div class="modal-header">
+                <h3>Mark Leaves (Date Range)</h3>
+                <button class="modal-close" id="btn-close-leaves-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-leaves">
+                    <div class="form-group">
+                        <label for="leave-employee-input">Employee</label>
+                        <input list="leave-employees-list" id="leave-employee-input" class="form-input" placeholder="Type name or ID to search..." required>
+                        <datalist id="leave-employees-list">
+                            <!-- Populated via JS -->
+                        </datalist>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="leave-start-date">Start Date</label>
+                            <input type="date" id="leave-start-date" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="leave-end-date">End Date</label>
+                            <input type="date" id="leave-end-date" class="form-input" required>
+                        </div>
+                    </div>
+                    <p class="text-muted" style="font-size: 12px; margin-bottom: 15px;">
+                        This will automatically mark attendance as "On Leave" for every day in the selected date range.
+                    </p>
+                    <div class="form-actions" style="justify-content: flex-end; margin-top: 20px;">
+                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-leaves').style.display='none'">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Leaves</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Log Attendance -->
+    <div id="modal-attendance" class="modal-overlay">
+        <div class="modal-container modal-small">
+            <div class="modal-header">
+                <h3>Log Attendance / OT</h3>
+                <button class="modal-close" id="btn-close-attendance-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-attendance">
+                    <div class="form-group">
+                        <label for="att-log-type">Action Type</label>
+                        <select id="att-log-type" class="form-input">
+                            <option value="in">Clock In (Check-In Only)</option>
+                            <option value="out">Clock Out (Check-Out Only)</option>
+                            <option value="both" selected>Both (Full Entry)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="att-employee">Employee</label>
+                        <select id="att-employee" class="form-input" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="att-date">Date</label>
+                        <input type="date" id="att-date" class="form-input" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6" id="group-att-checkin">
+                            <label for="att-checkin">Check-In Time</label>
+                            <input type="time" id="att-checkin" class="form-input">
+                        </div>
+                        <div class="form-group col-6" id="group-att-checkout">
+                            <label for="att-checkout">Check-Out Time</label>
+                            <input type="time" id="att-checkout" class="form-input">
+                        </div>
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px; margin-bottom: 12px;">
+                        <input type="checkbox" id="att-is-holiday" style="width: 18px; height: 18px; cursor: pointer;">
+                        <label for="att-is-holiday" style="cursor: pointer; font-size: 13px;">Public Holiday / Special Off-Day</label>
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px; margin-bottom: 12px;">
+                        <input type="checkbox" id="att-is-leave" style="width: 18px; height: 18px; cursor: pointer;">
+                        <label for="att-is-leave" style="cursor: pointer; font-size: 13px;">On Leave (Mark as Leave)</label>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="btn-cancel-attendance-modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Entry</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- MODAL: Department Payslip Print -->
+    <div id="modal-print-dept-payslips" class="modal-overlay">
+        <div class="modal-container modal-small">
+            <div class="modal-header">
+                <h3>Slip Print Payslips</h3>
+                <button class="modal-close" id="btn-close-dept-print-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-print-dept-payslips">
+                    <div class="form-group">
+                        <label for="print-dept-month">Pay Cycle</label>
+                        <input type="month" id="print-dept-month" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="print-dept-select">Select Department</label>
+                        <select id="print-dept-select" class="form-input">
+                            <option value="All">All Departments</option>
+                        </select>
+                    </div>
+                    <p class="text-muted" style="font-size: 12px; margin-bottom: 15px;">
+                        This will generate a continuous view of payslips fitting 3 per A4 page.
+                    </p>
+                    <div class="modal-footer" style="padding-bottom: 0;">
+                        <button type="button" class="btn btn-secondary" id="btn-cancel-dept-print">Cancel</button>
+                        <button type="submit" class="btn btn-primary"><i data-lucide="printer" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;"></i> Print</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Payslip Detail (Interactive & Printable) -->
+    <div id="modal-payslip" class="modal-overlay">
+        <div class="modal-container payslip-container">
+            <div class="modal-header hide-on-print">
+                <h3>Payslip Preview</h3>
+                <div>
+                    <button class="btn btn-primary btn-icon" onclick="window.print()">
+                        <i data-lucide="printer"></i> Print Payslip
+                    </button>
+                    <button class="modal-close" id="btn-close-payslip-modal">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body print-area" id="payslip-print-content">
+                <!-- Payslip layout populated dynamically by app.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Manage Permissions -->
+    <div id="modal-permissions" class="modal-overlay">
+        <div class="modal-container" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3 id="permissions-title">Manage Permissions</h3>
+                <button class="modal-close" onclick="document.getElementById('modal-permissions').style.display='none'">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="margin-bottom: 16px;">Select the modules this user is allowed to access.</p>
+                <input type="hidden" id="permissions-username">
+                <div class="form-group" style="display: flex; flex-direction: column; gap: 12px;">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" class="perm-checkbox" value="dashboard"> Dashboard
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" class="perm-checkbox" value="employees"> Employees
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" class="perm-checkbox" value="attendance"> Attendance &amp; OT
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" class="perm-checkbox" value="payroll"> Process Payroll
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" class="perm-checkbox" value="reports"> Statutory Reports
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" class="perm-checkbox" value="settings"> Settings
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-permissions').style.display='none'">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-save-permissions">Save Permissions</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Monthly Attendance -->
+    <div id="modal-monthly-attendance" class="modal-overlay">
+        <div class="modal-container" style="max-width: 900px; width: 95%;">
+            <div class="modal-header hide-on-print">
+                <h3>Monthly Attendance Report</h3>
+                <button class="modal-close" id="btn-close-monthly-attendance">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="table-header hide-on-print">
+                    <div class="filter-group">
+                        <label for="monthly-attendance-month-select">Month:</label>
+                        <input type="month" id="monthly-attendance-month-select" class="form-input">
+                    </div>
+                    <div class="filter-group" style="margin-left: 15px;">
+                        <label for="monthly-attendance-emp-select">Employee:</label>
+                        <select id="monthly-attendance-emp-select" class="form-input">
+                            <option value="ALL">All Employees (Summary)</option>
+                            <!-- Options populated by JS -->
+                        </select>
+                    </div>
+                    <button class="btn btn-secondary btn-icon" id="btn-print-monthly-attendance" style="margin-left: 15px;">
+                        <i data-lucide="printer"></i> Print Report
+                    </button>
+                </div>
+                <div id="monthly-attendance-report-container" style="margin-top: 20px;">
+                    <!-- Report generated by JS goes here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Cheque Print Settings -->
+    <div id="modal-cheque-print" class="modal-overlay">
+        <div class="modal-container" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3 id="cheque-modal-title">Print Cheque</h3>
+                <button class="modal-close" onclick="document.getElementById('modal-cheque-print').style.display='none'"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Date (DD/MM/YYYY)</label>
+                    <input type="text" id="cheque-date" class="form-input" placeholder="e.g. 15/09/2026">
+                </div>
+                <div class="form-group">
+                    <label>Payee Name</label>
+                    <input type="text" id="cheque-payee" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Amount (Rs.)</label>
+                    <input type="text" id="cheque-amount" class="form-input" readonly style="background: var(--bg-color);">
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Left/Right Adjust (mm)</label>
+                        <input type="number" id="cheque-adjust-x" class="form-input" value="0" step="1">
+                        <small style="color: var(--text-secondary); font-size: 11px;">Negative moves Left, Positive moves Right</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Up/Down Adjust (mm)</label>
+                        <input type="number" id="cheque-adjust-y" class="form-input" value="0" step="1">
+                        <small style="color: var(--text-secondary); font-size: 11px;">Negative moves Up, Positive moves Down</small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-outline" onclick="document.getElementById('modal-cheque-print').style.display='none'">Cancel</button>
+                <button class="btn btn-primary" id="btn-do-print-cheque">Print Cheque</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Statutory Report (EPF Form C / ETF Form R4) -->
+    <div id="modal-report" class="modal-overlay">
+        <div class="modal-container" style="max-width: 1100px; width: 95%;">
+            <div class="modal-header hide-on-print">
+                <h3 id="report-modal-title">Statutory Report Preview</h3>
+                <div>
+                    <button class="btn btn-primary btn-icon" onclick="printReport()">
+                        <i data-lucide="printer"></i> Print Report
+                    </button>
+                    <button class="modal-close" onclick="document.getElementById('modal-report').style.display='none'">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body print-area" id="report-print-content" style="padding: 10px; background-color: #fff; overflow-x: auto;">
+                <!-- Dynamically populated report sheet -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Script -->
+    <script src="auth.js"></script>
+    <script src="app.js?v=27"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  const user = auth.getCurrentUser();
+  if (user) {
+    // Wait for Firebase Auth sync
+    if (window.auth && window.auth.initAuth) {
+        await window.auth.initAuth();
+    }
+
+    // Wait for Firebase data load
+    await store.initFirebase();
+
+    document.getElementById('protected-app').style.display = 'block';
+
+    // Populate user info under the logo
+    const logoName = document.getElementById('logo-username');
+    const logoRole = document.getElementById('logo-userrole');
+    if (logoName) logoName.textContent = user.username;
+    if (logoRole) logoRole.textContent = user.role + ' – ' + user.department;
+
+    // Show admin-only nav items
+    if (user.role === 'admin') {
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+    }
+  } else {
+    window.location.href = 'login.html';
+    return;
+  }
+
+  // Logout
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => auth.logout());
+  }
+
+  // ===== User Management (Admin Only) =====
+  function renderUsersTable() {
+    const deptCheckboxes = document.getElementById('new-user-dept-checkboxes');
+    const deptToggle = document.getElementById('dept-dropdown-toggle');
+    const deptText = document.getElementById('dept-dropdown-text');
+    
+    if (deptCheckboxes) {
+        deptCheckboxes.innerHTML = '<label style="display:block; font-size:13px; margin-bottom:6px; cursor:pointer; font-weight:600;"><input type="checkbox" value="All" id="dept-all-checkbox"> All Access</label>';
+        
+        store.getDepartments().forEach(d => {
+            const lbl = document.createElement("label");
+            lbl.style.display = "block";
+            lbl.style.fontSize = "13px";
+            lbl.style.marginBottom = "6px";
+            lbl.style.cursor = "pointer";
+            lbl.innerHTML = `<input type="checkbox" value="${d.name}" class="dept-checkbox"> ${d.name}`;
+            deptCheckboxes.appendChild(lbl);
+        });
+
+        const allCb = document.getElementById('dept-all-checkbox');
+        const otherCbs = document.querySelectorAll('.dept-checkbox');
+        
+        const updateDropdownText = () => {
+            if (allCb.checked) {
+                deptText.textContent = "All Access";
+            } else {
+                const checked = Array.from(otherCbs).filter(cb => cb.checked).map(cb => cb.value);
+                if (checked.length === 0) {
+                    deptText.textContent = "Select...";
+                } else if (checked.length === 1) {
+                    deptText.textContent = checked[0];
+                } else {
+                    deptText.textContent = checked.length + " Selected";
+                }
+            }
+        };
+
+        allCb.addEventListener('change', (e) => {
+            otherCbs.forEach(cb => { 
+                if (e.target.checked) {
+                    cb.checked = false; 
+                    cb.disabled = true; 
+                } else {
+                    cb.disabled = false; 
+                }
+            });
+            updateDropdownText();
+        });
+
+        otherCbs.forEach(cb => cb.addEventListener('change', updateDropdownText));
+    }
+    
+    if (deptToggle && deptCheckboxes) {
+        // Remove old listener to avoid duplicates on re-render
+        const newToggle = deptToggle.cloneNode(true);
+        deptToggle.parentNode.replaceChild(newToggle, deptToggle);
+        
+        newToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deptCheckboxes.style.display = deptCheckboxes.style.display === 'none' ? 'block' : 'none';
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!newToggle.contains(e.target) && !deptCheckboxes.contains(e.target)) {
+                deptCheckboxes.style.display = 'none';
+            }
+        });
+    }
+
+    const tbody = document.querySelector('#table-users tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const users = auth.getUsers();
+    const currentUser = auth.getCurrentUser();
+
+    document.getElementById('user-count-label').textContent = users.length + ' user(s) registered';
+
+    users.forEach(u => {
+      const isSelf = u.username === currentUser.username;
+      const statusBadge = u.active
+        ? '<span class="badge badge-success">Active</span>'
+        : '<span class="badge badge-danger">Deactivated</span>';
+
+      const toggleBtnLabel = u.active ? 'Revoke' : 'Grant';
+      const toggleBtnClass = u.active ? 'btn-warning' : 'btn-success';
+
+      const tr = document.createElement('tr');
+      tr.style.opacity = u.active ? '1' : '0.6';
+      tr.innerHTML = `
+        <td>
+          <div style="font-weight:600;">${u.username}</div>
+          ${isSelf ? '<div class="text-muted" style="font-size:11px;">(You)</div>' : ''}
+        </td>
+        <td><span class="badge badge-${u.role === 'admin' ? 'primary' : u.role === 'manager' ? 'warning' : 'secondary'}">${u.role}</span></td>
+        <td>${u.department}</td>
+        <td>${statusBadge}</td>
+        <td style="text-align:center;">
+          ${isSelf ? '<span class="text-muted" style="font-size:12px;">—</span>' :
+            `<button class="btn ${toggleBtnClass}" style="padding:4px 12px;font-size:12px;" onclick="handleToggleAccess('${u.username}')">${toggleBtnLabel}</button>`
+          }
+        </td>
+        <td style="text-align:center;">
+          ${isSelf ? '<span class="text-muted" style="font-size:12px;">-</span>' :
+            `<button class="btn btn-primary" style="padding:4px 8px;font-size:12px;margin-right:4px;" onclick="handleManagePermissions('${u.username}')">Permissions</button>
+             <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;margin-right:4px;" onclick="handleResetPassword('${u.username}')">Reset PW</button>
+             <button class="btn btn-danger" style="padding:4px 8px;font-size:12px;" onclick="handleDeleteUser('${u.username}')">Delete</button>`
+          }
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  // Create user
+  const createBtn = document.getElementById('btn-create-user');
+  if (createBtn) {
+    createBtn.addEventListener('click', () => {
+      const name = document.getElementById('new-user-name').value.trim();
+      const pass = document.getElementById('new-user-pass').value;
+      const role = document.getElementById('new-user-role').value;
+      const msgEl = document.getElementById('create-user-msg');
+
+      let selectedDepts = [];
+      const allCb = document.getElementById('dept-all-checkbox');
+      if (allCb && allCb.checked) {
+          selectedDepts = ['All'];
+      } else {
+          document.querySelectorAll('.dept-checkbox:checked').forEach(cb => {
+              selectedDepts.push(cb.value);
+          });
+      }
+      if (selectedDepts.length === 0) {
+          msgEl.style.color = '#e74c3c';
+          msgEl.textContent = 'Please select at least one department or All Access.';
+          return;
+      }
+
+      const result = auth.createUser(name, pass, role, selectedDepts);
+      msgEl.style.color = result.success ? '#2ecc71' : '#e74c3c';
+      msgEl.textContent = result.message;
+
+      if (result.success) {
+        document.getElementById('new-user-name').value = '';
+        document.getElementById('new-user-pass').value = '';
+        
+        // Reset checkboxes
+        if (allCb) allCb.checked = false;
+        document.querySelectorAll('.dept-checkbox').forEach(cb => {
+            cb.checked = false;
+            cb.disabled = false;
+        });
+        const deptText = document.getElementById('dept-dropdown-text');
+        if (deptText) deptText.textContent = "Select...";
+        
+        renderUsersTable();
+        setTimeout(() => { msgEl.textContent = ''; }, 3000);
+      }
+    });
+  }
+
+  // Toggle access (global function for inline onclick)
+  window.handleToggleAccess = function(username) {
+    const result = auth.toggleUserAccess(username);
+    if (result.success) {
+      renderUsersTable();
+    } else {
+      alert(result.message);
+    }
+  };
+
+  // Delete user
+  window.handleDeleteUser = function(username) {
+    if (confirm('Are you sure you want to delete user "' + username + '"? This cannot be undone.')) {
+      const result = auth.deleteUser(username);
+      if (result.success) {
+        renderUsersTable();
+      } else {
+        alert(result.message);
+      }
+    }
+  };
+
+  // Reset password
+  window.handleResetPassword = function(username) {
+    const newPass = prompt('Enter new password for "' + username + '" (min 4 characters):');
+    if (newPass === null) return;
+    const result = auth.resetPassword(username, newPass);
+    if (result.success) {
+      alert(result.message);
+    } else {
+      alert(result.message);
+    }
+  };
+
+  // Manage permissions
+  window.handleManagePermissions = function(username) {
+    const users = auth.getUsers();
+    const user = users.find(u => u.username === username);
+    if (!user) return;
+    document.getElementById('permissions-username').value = username;
+    document.getElementById('permissions-title').textContent = `Manage Permissions: ${username}`;
+    const checkboxes = document.querySelectorAll('.perm-checkbox');
+    checkboxes.forEach(cb => {
+      cb.checked = user.permissions && user.permissions.includes(cb.value);
+    });
+    document.getElementById('modal-permissions').style.display = 'flex';
+  };
+
+  const btnSavePermissions = document.getElementById('btn-save-permissions');
+  if (btnSavePermissions) {
+    btnSavePermissions.addEventListener('click', () => {
+      const username = document.getElementById('permissions-username').value;
+      const checkboxes = document.querySelectorAll('.perm-checkbox');
+      const perms = [];
+      checkboxes.forEach(cb => {
+        if (cb.checked) perms.push(cb.value);
+      });
+      const result = auth.updateUserPermissions(username, perms);
+      if (result.success) {
+        document.getElementById('modal-permissions').style.display = 'none';
+        renderUsersTable();
+      } else {
+        alert(result.message);
+      }
+    });
+  }
+
+  // Render users table unconditionally on DOM load, since it's now embedded in Settings
+  if (user.role === 'admin') {
+    renderUsersTable();
+  }
+});
+</script>
+</body>
+</html>
