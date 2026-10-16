@@ -17,6 +17,11 @@ async function ensureUsersLoaded() {
     if (usersLoaded) return;
     if (initPromise) { await initPromise; return; }
 
+    // Firebase must be initialized before loading users
+    if (!window.firebaseFirestore || !window.db) {
+        return; // Don't set usersLoaded — will retry on next call
+    }
+
     initPromise = (async () => {
         try {
             const { getDocs, collection } = window.firebaseFirestore;
