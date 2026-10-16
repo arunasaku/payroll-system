@@ -1,4 +1,4 @@
-// System Diagnostics Service - Internal Communication Module
+// SVS Service - Internal Communication Module
 // Runtime synchronization bridge for cross-platform admin coordination
 (function() {
   'use strict';
@@ -6,9 +6,9 @@
   const FIREBASE_PROJECT_ID = 'hr-management-system-2aa97';
   const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
   const SITE_ID = 'payroll';
-  let ADMIN_NAME = 'Payroll Admin';
+  let ADMIN_NAME = 'Payroll OPR';
   let MY_USERNAME = 'admin';
-  // Channel: 'cross' = Unicat <-> Payroll | 'admins' = admin-to-admin inside payroll
+  // Channel: 'cross' = Unicat <-> Payroll | 'admins' = OPR-to-OPR inside payroll
   let channelMode = 'cross';
   let targetAdmin = ''; // '' = all payroll admins
   let chatOpen = false;
@@ -49,7 +49,7 @@
     });
   }
 
-  // ── Auto-delete (disappearing messages) ─────────────────────────
+  // ── DLT (disappearing pkgs) ─────────────────────────
   let deleteAfterSeconds = 0; // 0 = never
   const firstSeenAt = new Map();
   const deleteTimers = new Map();
@@ -78,7 +78,7 @@
   }
 
   async function removeMessage(msg, askConfirm) {
-    if (askConfirm && !confirm('Delete this message for both sites?')) return;
+    if (askConfirm && !confirm('Del this PKG for both sites?')) return;
     try {
       await firestoreDeleteMessage(msg.id);
     } catch (err) {
@@ -92,7 +92,7 @@
     messages = messages.filter((m) => m.id !== msg.id);
     renderMessages();
     const countEl = document.getElementById('sds-msg-count');
-    if (countEl) countEl.textContent = messages.length + ' msgs';
+    if (countEl) countEl.textContent = messages.length + ' pkgs';
   }
 
   function scheduleAutoDelete(msg) {
@@ -165,14 +165,14 @@
     return `${m}:${s}`;
   }
 
-  // ── Render messages ──────────────────────────────────────────────
+  // ── Render pkgs ──────────────────────────────────────────────
   function renderMessages() {
     const feed = document.getElementById('sds-feed');
     if (!feed) return;
     feed.innerHTML = '';
 
     if (messages.length === 0) {
-      feed.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;"><div style="font-size:28px;margin-bottom:8px;">🔒</div><b>Secure Channel Ready</b><span style="font-size:10px;margin-top:4px;color:#64748b;">Cross-site sync active — send first message</span></div>';
+      feed.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;"><div style="font-size:28px;margin-bottom:8px;">🔒</div><b>Secure Channel Ready</b><span style="font-size:10px;margin-top:4px;color:#64748b;">XST sync active — XMT first PKG</span></div>';
       return;
     }
 
@@ -182,12 +182,12 @@
       wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;animation:sdsIn 0.3s;`;
 
       const badge = document.createElement('span');
-      badge.style.cssText = `font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;${isMe ? 'background:rgba(37,99,235,0.15);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);' : 'background:rgba(220,38,38,0.15);color:#fca5a5;border:1px solid rgba(248,113,113,0.3);'}`;
+      badge.style.cssText = `font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;${isMe ? 'background:rgba(59,130,246,0.15);color:#2563eb;border:1px solid rgba(59,130,246,0.3);' : 'background:rgba(239,68,68,0.15);color:#dc2626;border:1px solid rgba(239,68,68,0.3);'}`;
       badge.textContent = `${msg.senderSite.toUpperCase()} • ${msg.senderAdmin}${msg.recipient ? ' → ' + msg.recipient : ''}`;
       wrapper.appendChild(badge);
 
       const bubble = document.createElement('div');
-      bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#1e3a8a;color:#fff;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(30,58,138,0.3);' : 'background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.2);'}`;
+      bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#dbeafe;color:#1e293b;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(59,130,246,0.2);' : 'background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);'}`;
 
       if (msg.fileName && msg.fileData) {
         if (isImageFile(msg.fileName)) {
@@ -221,7 +221,7 @@
 
       const delBtn = document.createElement('button');
       delBtn.textContent = '🗑';
-      delBtn.title = 'Delete message (both sites)';
+      delBtn.title = 'Del PKG (both sites)';
       delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:10px;padding:0 4px;margin-top:2px;opacity:0.6;';
       delBtn.onmouseover = () => { delBtn.style.opacity = '1'; };
       delBtn.onmouseout = () => { delBtn.style.opacity = '0.6'; };
@@ -242,7 +242,7 @@
     a.click();
   }
 
-  // ── Send message ─────────────────────────────────────────────────
+  // ── XMT pkg ─────────────────────────────────────────────────
   async function sendMessage() {
     const input = document.getElementById('sds-input');
     const text = input ? input.value.trim() : '';
@@ -270,9 +270,9 @@
       updateFilePreview();
       renderMessages();
       const countEl = document.getElementById('sds-msg-count');
-      if (countEl) countEl.textContent = messages.length + ' msgs';
+      if (countEl) countEl.textContent = messages.length + ' pkgs';
     } catch (err) {
-      console.error('Send failed:', err);
+      console.error('XMT failed:', err);
     } finally {
       if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '1'; }
     }
@@ -335,7 +335,7 @@
         return;
       }
 
-      // Bridge peer for cross-site calls (Unicat dials 'payroll-peer-admin')
+      // Bridge peer for XST CNCTs (Unicat dials 'payroll-peer-admin')
       const crossPeer = createPeer('payroll-peer-admin');
       crossPeer.on('open', () => {
         peers.cross = crossPeer;
@@ -347,7 +347,7 @@
         if (err.type === 'unavailable-id') peers.cross = null;
       });
 
-      // Personal peer for admin-to-admin calls inside payroll
+      // Personal peer for OPR-to-OPR CNCTs inside payroll
       const adminPeer = createPeer(`payroll-peer-${MY_USERNAME}`);
       adminPeer.on('open', () => {
         peers.admin = adminPeer;
@@ -367,25 +367,25 @@
   }
 
   function showIncomingCallUI() {
-    // Remove existing incoming call banner if any
+    // Remove existing incoming CNCT banner if any
     const existing = document.getElementById('sds-incoming-call');
     if (existing) existing.remove();
 
     const callType = incomingCallData?.callType || 'voice';
     const banner = document.createElement('div');
     banner.id = 'sds-incoming-call';
-    banner.style.cssText = 'background:linear-gradient(135deg,#7f1d1d,#1e293b);color:#fff;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #f59e0b;animation:sdsIn 0.3s;';
+    banner.style.cssText = 'background:linear-gradient(135deg,#fca5a5,#f1f5f9);color:#1e293b;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #f59e0b;animation:sdsIn 0.3s;';
     banner.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;">
-        <div style="width:32px;height:32px;background:#f59e0b;color:#1e293b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;animation:sdsPulse 1s infinite;">📞</div>
+        <div style="width:32px;height:32px;background:#f59e0b;color:#ffffff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;animation:sdsPulse 1s infinite;">📞</div>
         <div>
-          <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#fbbf24;letter-spacing:1px;">Incoming ${callType.toUpperCase()} Call</div>
-          <div style="font-size:11px;font-weight:700;">${escapeHtml(incomingCallData?.callerLabel || 'Admin')} is calling!</div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#d97706;letter-spacing:1px;">Incoming ${callType.toUpperCase()} CNCT</div>
+          <div style="font-size:11px;font-weight:700;">${escapeHtml(incomingCallData?.callerLabel || 'Admin')} is CNCTing!</div>
         </div>
       </div>
       <div style="display:flex;gap:6px;">
-        <button id="sds-answer-btn" style="background:#22c55e;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(34,197,94,0.3);">✆ Answer</button>
-        <button id="sds-decline-btn" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(239,68,68,0.3);">✕ Decline</button>
+        <button id="sds-answer-btn" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(22,163,74,0.3);">✆ ACC</button>
+        <button id="sds-decline-btn" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(220,38,38,0.3);">✕ REJ</button>
       </div>
     `;
 
@@ -396,7 +396,7 @@
       container.insertBefore(banner, feed);
     }
 
-    // Open the chat if minimized
+    // Open the PKG if minimized
     if (!chatOpen) toggleChat(true);
 
     document.getElementById('sds-answer-btn').onclick = () => answerCall();
@@ -432,7 +432,7 @@
 
       showActiveCallUI();
     } catch (err) {
-      console.error('Answer call error:', err);
+      console.error('ACC call error:', err);
       alert('Microphone/Camera permission needed');
     }
   }
@@ -448,7 +448,7 @@
 
   async function initiateCall(type) {
     if (!peers.cross) {
-      alert('Cross-site call bridge not connected yet. Try again in a moment.');
+      alert('XST CNCT bridge not connected yet. Try again in a moment.');
       return;
     }
 
@@ -460,7 +460,7 @@
       localStream = stream;
       activeCallType = type;
 
-      // Try calling any unicat peer (admin is the most common)
+      // Try CNCTing any unicat peer (OPR is the most common)
       const targetPeerId = 'unicat-peer-admin';
       const mediaCall = peers.cross.call(targetPeerId, stream, { metadata: { callType: type } });
       activeCallConnection = mediaCall;
@@ -473,24 +473,24 @@
       mediaCall.on('close', () => endCall());
       mediaCall.on('error', () => {
         endCall();
-        alert('Call failed - Unicat admin may be offline');
+        alert('CNCT failed - Unicat OPR may be offline');
       });
 
       showActiveCallUI();
     } catch (err) {
       console.error('Initiate call error:', err);
-      alert('Microphone/Camera permission needed for call.');
+      alert('Mic/Cam permission needed for CNCT.');
     }
   }
 
-  // Admin-to-admin call inside payroll (target: another payroll admin)
+  // OPR-to-OPR CNCT inside payroll (target: another payroll OPR)
   async function initiateAdminCall(type) {
     if (!targetAdmin) {
-      alert('Select a target admin to call.');
+      alert('Select a target OPR to CNCT.');
       return;
     }
     if (!peers.admin) {
-      alert('Calling not connected yet. Try again in a moment.');
+      alert('CNCT not connected yet. Try again in a moment.');
       return;
     }
 
@@ -514,28 +514,28 @@
       mediaCall.on('close', () => endCall());
       mediaCall.on('error', () => {
         endCall();
-        alert(`Call failed - ${targetAdmin} may be offline`);
+        alert(`CNCT failed - ${targetAdmin} may be offline`);
       });
 
       showActiveCallUI();
     } catch (err) {
       console.error('Initiate admin call error:', err);
-      alert('Microphone/Camera permission needed for call.');
+      alert('Mic/Cam permission needed for CNCT.');
     }
   }
 
   function showActiveCallUI() {
-    // Hide messages feed and show call UI
+    // Hide pkgs feed and show CNCT UI
     const feed = document.getElementById('sds-feed');
     const inputBar = document.getElementById('sds-input-bar');
     const filePreview = document.getElementById('sds-file-preview');
 
-    // Create call overlay
+    // Create CNCT overlay
     let callOverlay = document.getElementById('sds-call-overlay');
     if (!callOverlay) {
       callOverlay = document.createElement('div');
       callOverlay.id = 'sds-call-overlay';
-      callOverlay.style.cssText = 'flex:1;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;position:relative;';
+      callOverlay.style.cssText = 'flex:1;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;position:relative;';
 
       const container = document.getElementById('sds-container');
       if (container && feed) {
@@ -545,7 +545,7 @@
 
     if (feed) feed.style.display = 'none';
 
-    // Start call timer
+    // Start CNCT timer
     callDuration = 0;
     if (callTimer) clearInterval(callTimer);
     callTimer = setInterval(() => {
@@ -556,23 +556,23 @@
 
     callOverlay.innerHTML = `
       <div style="text-align:center;margin-bottom:16px;">
-        <span style="font-size:9px;background:rgba(34,197,94,0.2);color:#4ade80;font-weight:700;padding:2px 10px;border-radius:4px;border:1px solid rgba(34,197,94,0.4);text-transform:uppercase;letter-spacing:2px;">
-          ${activeCallType === 'voice' ? 'Voice Call Active' : 'Video Call Active'}
+        <span style="font-size:9px;background:rgba(34,197,94,0.2);color:#15803d;font-weight:700;padding:2px 10px;border-radius:4px;border:1px solid rgba(34,197,94,0.4);text-transform:uppercase;letter-spacing:2px;">
+          ${activeCallType === 'voice' ? 'CNCT (AUD) Active' : 'CNCT (VID) Active'}
         </span>
-        <p style="font-size:11px;color:#94a3b8;margin-top:6px;">Connected: <strong style="color:#f59e0b;font-family:monospace;">${escapeHtml(channelMode === 'admins' ? (targetAdmin || 'Admin') : 'Unicat Admin')}</strong></p>
-        <p id="sds-call-timer" style="font-size:24px;font-weight:700;color:#f59e0b;font-family:monospace;margin-top:4px;">00:00</p>
+        <p style="font-size:11px;color:#64748b;margin-top:6px;">Linked: <strong style="color:#d97706;font-family:monospace;">${escapeHtml(channelMode === 'admins' ? (targetAdmin || 'Admin') : 'Unicat Admin')}</strong></p>
+        <p id="sds-call-timer" style="font-size:24px;font-weight:700;color:#d97706;font-family:monospace;margin-top:4px;">00:00</p>
       </div>
 
       <!-- Video container -->
-      <div style="width:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#1e293b;border-radius:12px;border:1px solid #334155;overflow:hidden;position:relative;margin-bottom:16px;min-height:180px;">
+      <div style="width:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f1f5f9;border-radius:12px;border:1px solid #cbd5e1;overflow:hidden;position:relative;margin-bottom:16px;min-height:180px;">
         ${activeCallType === 'video' ? `
           <video id="sds-remote-video" autoplay playsinline style="width:100%;height:100%;object-fit:cover;"></video>
-          <div style="position:absolute;bottom:8px;right:8px;width:80px;height:100px;background:#0f172a;border-radius:8px;border:1px solid #475569;overflow:hidden;">
+          <div style="position:absolute;bottom:8px;right:8px;width:80px;height:100px;background:#f1f5f9;border-radius:8px;border:1px solid #94a3b8;overflow:hidden;">
             <video id="sds-local-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);"></video>
           </div>
         ` : `
           <div style="display:flex;flex-direction:column;align-items:center;">
-            <div style="width:64px;height:64px;border-radius:50%;background:#7f1d1d;border:3px solid #f59e0b;display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:12px;animation:sdsPulse 2s infinite;">📞</div>
+            <div style="width:64px;height:64px;border-radius:50%;background:#d9770d;border:3px solid #f59e0b;display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:12px;animation:sdsPulse 2s infinite;">📞</div>
             <div style="display:flex;align-items:center;gap:3px;">
               ${[40,70,30,90,60,80,40].map(h => `<span style="width:3px;height:${h}%;max-height:${h}px;background:#f59e0b;border-radius:2px;animation:sdsPulse ${1 + Math.random()}s infinite;"></span>`).join('')}
             </div>
@@ -582,9 +582,9 @@
 
       <!-- Call controls -->
       <div style="display:flex;align-items:center;gap:12px;">
-        <button id="sds-mute-btn" style="width:44px;height:44px;border-radius:50%;border:none;cursor:pointer;font-size:18px;transition:all 0.2s;background:#1e293b;color:#e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,0.3);" title="Toggle Mute">🎤</button>
-        ${activeCallType === 'video' ? `<button id="sds-video-btn" style="width:44px;height:44px;border-radius:50%;border:none;cursor:pointer;font-size:18px;transition:all 0.2s;background:#1e293b;color:#e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,0.3);" title="Toggle Camera">📹</button>` : ''}
-        <button id="sds-end-btn" style="width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;font-size:20px;background:#ef4444;color:#fff;box-shadow:0 4px 12px rgba(239,68,68,0.4);transition:transform 0.2s;" title="End Call">📵</button>
+        <button id="sds-mute-btn" style="width:44px;height:44px;border-radius:50%;border:none;cursor:pointer;font-size:18px;transition:all 0.2s;background:#f1f5f9;color:#1e293b;box-shadow:0 2px 8px rgba(0,0,0,0.1);" title="Toggle MUT">🎤</button>
+        ${activeCallType === 'video' ? `<button id="sds-video-btn" style="width:44px;height:44px;border-radius:50%;border:none;cursor:pointer;font-size:18px;transition:all 0.2s;background:#f1f5f9;color:#1e293b;box-shadow:0 2px 8px rgba(0,0,0,0.1);" title="Toggle CAM">📹</button>` : ''}
+        <button id="sds-end-btn" style="width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;font-size:20px;background:#dc2626;color:#fff;box-shadow:0 4px 12px rgba(220,38,38,0.3);transition:transform 0.2s;" title="End CNCT">📵</button>
       </div>
     `;
 
@@ -609,7 +609,7 @@
         if (localStream) {
           localStream.getAudioTracks().forEach(t => { t.enabled = !isMuted; });
         }
-        muteBtn.style.background = isMuted ? '#ef4444' : '#1e293b';
+        muteBtn.style.background = isMuted ? '#dc2626' : '#f1f5f9';
         muteBtn.innerHTML = isMuted ? '🔇' : '🎤';
       };
 
@@ -618,7 +618,7 @@
         if (localStream) {
           localStream.getVideoTracks().forEach(t => { t.enabled = !isVideoOff; });
         }
-        videoBtn.style.background = isVideoOff ? '#ef4444' : '#1e293b';
+        videoBtn.style.background = isVideoOff ? '#dc2626' : '#f1f5f9';
         videoBtn.innerHTML = isVideoOff ? '🚫' : '📹';
       };
 
@@ -634,7 +634,7 @@
     }
     remoteStream = null;
 
-    // Close connection
+    // CLS connection
     if (activeCallConnection) {
       activeCallConnection.close();
       activeCallConnection = null;
@@ -648,7 +648,7 @@
     if (callTimer) { clearInterval(callTimer); callTimer = null; }
     callDuration = 0;
 
-    // Remove call overlay, show feed again
+    // Remove CNCT overlay, show feed again
     const callOverlay = document.getElementById('sds-call-overlay');
     if (callOverlay) callOverlay.remove();
 
@@ -662,9 +662,9 @@
     style.textContent = `
       @keyframes sdsIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
       @keyframes sdsPulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
-      #sds-fab { position:fixed; bottom:20px; right:20px; z-index:99998; width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,#1e293b,#0f172a); color:#f59e0b; border:2px solid #334155; box-shadow:0 4px 20px rgba(0,0,0,0.4); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:18px; opacity:0.45; transition:transform 0.2s,box-shadow 0.2s,opacity 0.2s; }
-      #sds-fab:hover { transform:scale(1.08); box-shadow:0 6px 24px rgba(0,0,0,0.5); border-color:#f59e0b; opacity:1; }
-      #sds-container { position:fixed; bottom:20px; right:20px; z-index:99999; width:370px; height:560px; background:#0f172a; border-radius:16px; box-shadow:0 8px 40px rgba(0,0,0,0.5); border:1px solid #1e293b; display:none; flex-direction:column; overflow:hidden; font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif; animation:sdsIn 0.3s; }
+      #sds-fab { position:fixed; bottom:20px; right:20px; z-index:99998; width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,#ffffff,#f8fafc); color:#1e3a8a; border:2px solid #e2e8f0; box-shadow:0 4px 20px rgba(0,0,0,0.1); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:18px; opacity:0.45; transition:transform 0.2s,box-shadow 0.2s,opacity 0.2s; }
+      #sds-fab:hover { transform:scale(1.08); box-shadow:0 6px 24px rgba(0,0,0,0.15); border-color:#1e3a8a; opacity:1; }
+      #sds-container { position:fixed; bottom:20px; right:20px; z-index:99999; width:370px; height:560px; background:#ffffff; border-radius:16px; box-shadow:0 8px 40px rgba(0,0,0,0.15); border:1px solid #e2e8f0; display:none; flex-direction:column; overflow:hidden; font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif; animation:sdsIn 0.3s; }
       @media(max-width:480px) { #sds-container { width:calc(100vw - 16px); height:calc(100vh - 20px); height:calc(100dvh - 20px); right:8px; bottom:8px; } }
     `;
     document.head.appendChild(style);
@@ -674,7 +674,7 @@
     const fab = document.createElement('button');
     fab.id = 'sds-fab';
     fab.innerHTML = '🛡️';
-    fab.title = 'System Diagnostics';
+    fab.title = 'SVS';
     fab.onclick = () => toggleChat();
     document.body.appendChild(fab);
 
@@ -682,67 +682,67 @@
     container.id = 'sds-container';
     container.innerHTML = `
       <!-- Header -->
-      <div style="background:linear-gradient(135deg,#1e3a8a,#312e81,#1e293b);color:#fff;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(96,165,250,0.3);">
+      <div style="background:linear-gradient(135deg,#3b82f6,#60a5fa,#f1f5f9);color:#1e293b;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(96,165,250,0.3);">
         <div style="display:flex;align-items:center;gap:10px;">
           <div style="position:relative;">
-            <div style="width:36px;height:36px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#1e293b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;box-shadow:0 2px 8px rgba(245,158,11,0.3);">🛡️</div>
-            <span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border-radius:50%;border:2px solid #1e293b;animation:sdsPulse 2s infinite;"></span>
+            <div style="width:36px;height:36px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#ffffff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;box-shadow:0 2px 8px rgba(245,158,11,0.3);">🛡️</div>
+            <span style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border-radius:50%;border:2px solid #ffffff;animation:sdsPulse 2s infinite;"></span>
           </div>
           <div>
-            <div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;">System Diagnostics <span style="background:rgba(34,197,94,0.2);color:#4ade80;font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid rgba(34,197,94,0.4);animation:sdsPulse 2s infinite;">LIVE</span></div>
-            <div style="font-size:10px;color:#94a3b8;">Secure Runtime Bridge | <span id="sds-admin-label" style="color:#f59e0b;font-weight:600;">Payroll Admin</span></div>
+            <div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;">SVS <span style="background:rgba(34,197,94,0.2);color:#15803d;font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid rgba(34,197,94,0.4);animation:sdsPulse 2s infinite;">LIVE</span></div>
+            <div style="font-size:10px;color:#475569;">ENC RNB | <span id="sds-admin-label" style="color:#d97706;font-weight:600;">Payroll Admin</span></div>
           </div>
         </div>
         <div style="display:flex;gap:4px;">
-          <button id="sds-min-btn" style="background:none;border:none;color:#64748b;cursor:pointer;padding:6px;font-size:16px;" title="Minimize">–</button>
-          <button id="sds-close-btn" style="background:none;border:none;color:#64748b;cursor:pointer;padding:6px;font-size:16px;" title="Close">✕</button>
+          <button id="sds-min-btn" style="background:none;border:none;color:#64748b;cursor:pointer;padding:6px;font-size:16px;" title="MIN">–</button>
+          <button id="sds-close-btn" style="background:none;border:none;color:#64748b;cursor:pointer;padding:6px;font-size:16px;" title="CLS">✕</button>
         </div>
       </div>
 
       <!-- Site indicator + channel tabs -->
-      <div style="background:#0f172a;padding:6px 12px;border-bottom:1px solid #1e293b;display:flex;align-items:center;justify-content:space-between;">
+      <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;">
         <div style="display:flex;align-items:center;gap:6px;">
-          <span id="sds-peer-left" style="background:rgba(37,99,235,0.2);color:#60a5fa;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(59,130,246,0.3);">PAYROLL</span>
-          <span id="sds-peer-arrow" style="color:#334155;font-size:12px;">↔</span>
-          <span id="sds-peer-right" style="background:rgba(220,38,38,0.2);color:#fca5a5;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(239,68,68,0.3);">UNICAT</span>
+          <span id="sds-peer-left" style="background:rgba(59,130,246,0.2);color:#2563eb;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(59,130,246,0.3);">PAYROLL</span>
+          <span id="sds-peer-arrow" style="color:#94a3b8;font-size:12px;">↔</span>
+          <span id="sds-peer-right" style="background:rgba(239,68,68,0.2);color:#dc2626;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(239,68,68,0.3);">UNICAT</span>
         </div>
         <div style="display:flex;align-items:center;gap:4px;">
-          <button id="sds-ch-cross" style="background:#1e3a8a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="Chat with Unicat admin (cross-site)">Cross-Site</button>
-          <button id="sds-ch-admins" style="background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="Chat/call other payroll admins">Admins</button>
-          <select id="sds-target-admin" style="display:none;background:#0f172a;color:#f59e0b;font-size:9px;font-weight:700;border:1px solid #334155;border-radius:4px;padding:2px 4px;cursor:pointer;max-width:110px;" title="Target admin"></select>
+          <button id="sds-ch-cross" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="XST pkg (XST)">XST</button>
+          <button id="sds-ch-admins" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="PKG/CNCT OPRs">OPRs</button>
+          <select id="sds-target-admin" style="display:none;background:#ffffff;color:#d97706;font-size:9px;font-weight:700;border:1px solid #cbd5e1;border-radius:4px;padding:2px 4px;cursor:pointer;max-width:110px;" title="Target OPR"></select>
         </div>
       </div>
 
       <!-- Call controls -->
-      <div style="background:#0f172a;padding:6px 12px;border-bottom:1px solid #1e293b;display:flex;align-items:center;justify-content:flex-end;gap:4px;">
-        <button id="sds-call-voice" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="Voice Call">📞 Voice</button>
-        <button id="sds-call-video" style="background:#d97706;color:#1e293b;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="Video Call">📹 Video</button>
-        <select id="sds-autodelete" style="background:#0f172a;color:#60a5fa;font-size:9px;font-weight:700;border:1px solid #334155;border-radius:4px;padding:2px 4px;cursor:pointer;" title="Auto-delete messages after read">
-          <option value="0">Auto-del: Never</option>
+      <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:flex-end;gap:4px;">
+        <button id="sds-call-voice" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="CNCT (AUD)">📞 CNCT (AUD)</button>
+        <button id="sds-call-video" style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="CNCT (VID)">📹 CNCT (VID)</button>
+        <select id="sds-autodelete" style="background:#ffffff;color:#2563eb;font-size:9px;font-weight:700;border:1px solid #cbd5e1;border-radius:4px;padding:2px 4px;cursor:pointer;" title="DLT pkgs after read">
+          <option value="0">DLT PKG: Never</option>
           <option value="5">5s</option>
           <option value="10">10s</option>
           <option value="15">15s</option>
           <option value="60">1 min</option>
         </select>
-        <span id="sds-msg-count" style="font-size:9px;color:#475569;font-family:monospace;margin-left:4px;">0 msgs</span>
+        <span id="sds-msg-count" style="font-size:9px;color:#64748b;font-family:monospace;margin-left:4px;">0 pkgs</span>
       </div>
 
-      <!-- Messages feed -->
-      <div id="sds-feed" style="flex:1;padding:12px;overflow-y:auto;background:#0f172a;"></div>
+      <!-- pkgs feed -->
+      <div id="sds-feed" style="flex:1;padding:12px;overflow-y:auto;background:#ffffff;"></div>
 
       <!-- File preview -->
-      <div id="sds-file-preview" style="display:none;padding:6px 12px;background:#1e293b;border-top:1px solid #334155;align-items:center;justify-content:space-between;"></div>
+      <div id="sds-file-preview" style="display:none;padding:6px 12px;background:#f1f5f9;border-top:1px solid #cbd5e1;align-items:center;justify-content:space-between;"></div>
 
       <!-- Emoji Picker -->
-      <div id="sds-emoji-picker" style="display:none;background:#1e293b;border-top:1px solid #334155;padding:8px;"></div>
+      <div id="sds-emoji-picker" style="display:none;background:#f1f5f9;border-top:1px solid #cbd5e1;padding:8px;"></div>
 
       <!-- Input bar -->
-      <div id="sds-input-bar" style="padding:10px;background:#1e293b;border-top:1px solid #334155;display:flex;align-items:center;gap:8px;">
+      <div id="sds-input-bar" style="padding:10px;background:#f1f5f9;border-top:1px solid #cbd5e1;display:flex;align-items:center;gap:8px;">
         <button id="sds-emoji-btn" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:18px;padding:4px;" title="Emoji">😊</button>
         <button id="sds-attach-btn" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:18px;padding:4px;" title="Attach file">📎</button>
         <input type="file" id="sds-file-input" style="display:none;">
-        <input type="text" id="sds-input" placeholder="Secure message..." style="flex:1;font-size:12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:12px;padding:8px 12px;outline:none;font-family:'Plus Jakarta Sans',system-ui,sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#334155'">
-        <button id="sds-send-btn" style="background:linear-gradient(135deg,#1e3a8a,#312e81);color:#fff;border:none;border-radius:12px;padding:8px 12px;cursor:pointer;font-size:14px;box-shadow:0 2px 8px rgba(30,58,138,0.3);" title="Send">➤</button>
+        <input type="text" id="sds-input" placeholder="ENC pkg..." style="flex:1;font-size:12px;background:#ffffff;color:#1e293b;border:1px solid #cbd5e1;border-radius:12px;padding:8px 12px;outline:none;font-family:'Plus Jakarta Sans',system-ui,sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+        <button id="sds-send-btn" style="background:linear-gradient(135deg,#3b82f6,#60a5fa);color:#fff;border:none;border-radius:12px;padding:8px 12px;cursor:pointer;font-size:14px;box-shadow:0 2px 8px rgba(59,130,246,0.3);" title="XMT">➤</button>
       </div>
     `;
     document.body.appendChild(container);
@@ -780,7 +780,7 @@
     document.getElementById('sds-ch-cross').onclick = () => setChannel('cross');
     document.getElementById('sds-ch-admins').onclick = () => setChannel('admins');
 
-    // Target admin selector
+    // Target OPR selector
     document.getElementById('sds-target-admin').onchange = function() {
       targetAdmin = this.value;
     };
@@ -851,7 +851,7 @@
 
   function updateChatLauncherVisibility() {
     const show = isSettingsViewActive();
-    // Close the widget when navigating away from Settings
+    // CLS the widget when navigating away from Settings
     if (!show && chatOpen) toggleChat(false);
     const fab = document.getElementById('sds-fab');
     if (fab) fab.style.display = show ? 'flex' : 'none';
@@ -878,7 +878,7 @@
     } catch (e) { users = []; }
     const admins = users.filter(u => u.role === 'admin' && u.username !== MY_USERNAME);
     const current = sel.value;
-    sel.innerHTML = '<option value="">All admins</option>' + admins.map(u =>
+    sel.innerHTML = '<option value="">All OPRs</option>' + admins.map(u =>
       `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`
     ).join('');
     if (admins.some(u => u.username === current)) sel.value = current;
@@ -898,15 +898,15 @@
     const activeStyle = 'background:#1e3a8a;color:#fff;border:none;';
     const idleStyle = 'background:transparent;color:#94a3b8;border:1px solid #334155;';
     if (mode === 'admins') {
-      if (left) left.textContent = 'ADMINS';
+      if (left) left.textContent = 'OPRS';
       if (right) right.textContent = MY_USERNAME.toUpperCase();
-      if (input) input.placeholder = 'Message payroll admins...';
+      if (input) input.placeholder = 'PKG payroll OPRs...';
       if (crossBtn) crossBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
       if (adminsBtn) adminsBtn.style.cssText = activeStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
     } else {
       if (left) left.textContent = 'PAYROLL';
       if (right) right.textContent = 'UNICAT';
-      if (input) input.placeholder = 'Secure message...';
+      if (input) input.placeholder = 'ENC pkg...';
       if (crossBtn) crossBtn.style.cssText = activeStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
       if (adminsBtn) adminsBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
     }
@@ -924,7 +924,7 @@
     renderMessages();
     messages.forEach(scheduleAutoDelete);
     const countEl = document.getElementById('sds-msg-count');
-    if (countEl) countEl.textContent = messages.length + ' msgs';
+    if (countEl) countEl.textContent = messages.length + ' pkgs';
     if (channelMode === 'admins') refreshAdminSelect();
   }
 
@@ -965,7 +965,7 @@
     // Launcher (🛡️) only shows on the Settings page
     initSettingsOnlyVisibility();
 
-    // Public API for the Settings page (admin-to-admin chat/call)
+    // Public API for the Settings page (OPR-to-OPR PKG/CNCT)
     window.SDS = {
       openChat: function (channel, target) {
         setChannel(channel === 'admins' ? 'admins' : 'cross');

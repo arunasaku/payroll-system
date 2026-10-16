@@ -38,6 +38,11 @@ function seedUsers() {
             else u.permissions = ['dashboard', 'employees', 'attendance', 'reports'];
             changed = true;
         }
+        // Fix: Convert department array to string if needed
+        if (Array.isArray(u.department)) {
+            u.department = u.department.join(', ');
+            changed = true;
+        }
     });
 
     // Self-heal: if no admin account exists (e.g. deleted via User Management),
@@ -109,7 +114,7 @@ function createUser(username, password, role, department) {
         username: username,
         password: password,
         role: role || "employee",
-        department: department || "General",
+        department: Array.isArray(department) ? department.join(', ') : (department || "General"),
         active: true,
         permissions: role === 'admin' ? ['dashboard', 'employees', 'attendance', 'payroll', 'reports', 'settings', 'users'] : (role === 'manager' ? ['dashboard', 'employees', 'attendance', 'payroll', 'reports', 'settings'] : ['dashboard', 'attendance', 'reports'])
     });

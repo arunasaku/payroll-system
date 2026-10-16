@@ -145,6 +145,21 @@ window.onerror = function(message, source, lineno, colno, error) {
                     </div>
 
                     <div class="dashboard-grid" style="grid-template-columns: 1fr; margin-bottom: 24px;">
+                        <div class="card" style="background:var(--bg-card); border:none; box-shadow:none; padding:0;">
+                            <div style="padding:12px 20px; display:flex; align-items:center; gap:16px; border-bottom:1px solid var(--border-color);">
+                                <span style="font-weight:600; color:var(--text-secondary); font-size:13px; text-transform:uppercase; letter-spacing:1px;">Filter by Month</span>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <label style="font-size:13px; color:var(--text-secondary); margin:0;">Month:</label>
+                                    <input type="month" id="dash-month-select" class="form-input" style="max-width: 220px;">
+                                </div>
+                                <button class="btn btn-secondary btn-icon" id="btn-dash-month-reset" style="padding:6px 12px; font-size:13px;" title="Reset to current month">
+                                    <i data-lucide="rotate-ccw" style="width:14px; height:14px;"></i> Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-grid" style="grid-template-columns: 1fr; margin-bottom: 24px;">
                         <div class="card">
                             <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
                                 <h3><i data-lucide="user-x" style="vertical-align:middle; width:18px; color:var(--danger-color);"></i> Daily Absentees</h3>
@@ -1185,7 +1200,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
       }
 
-      const result = auth.createUser(name, pass, role, selectedDepts);
+      const result = auth.createUser(name, pass, role, selectedDepts.join(', '));
       msgEl.style.color = result.success ? '#2ecc71' : '#e74c3c';
       msgEl.textContent = result.message;
 

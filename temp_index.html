@@ -1132,7 +1132,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
       }
 
-      const result = auth.createUser(name, pass, role, selectedDepts);
+      const result = auth.createUser(name, pass, role, selectedDepts.join(', '));
       msgEl.style.color = result.success ? '#2ecc71' : '#e74c3c';
       msgEl.textContent = result.message;
 

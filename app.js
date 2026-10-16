@@ -416,6 +416,22 @@ function setupEventListeners() {
     const searchInputPayroll = document.getElementById("payroll-search-input");
     if (searchInputPayroll) searchInputPayroll.addEventListener("input", filterPayrollTable);
 
+    // Dashboard month selector
+    const dashMonthSelect = document.getElementById("dash-month-select");
+    if (dashMonthSelect) {
+        dashMonthSelect.value = curMonth;
+        dashMonthSelect.addEventListener("change", () => {
+            updateDashboardStats();
+        });
+    }
+    const btnDashReset = document.getElementById("btn-dash-month-reset");
+    if (btnDashReset) {
+        btnDashReset.addEventListener("click", () => {
+            if (dashMonthSelect) dashMonthSelect.value = curMonth;
+            updateDashboardStats();
+        });
+    }
+
     // Reports Listeners
     document.getElementById("btn-gen-epf-c").addEventListener("click", generateEpfCForm);
     document.getElementById("btn-gen-etf-r4").addEventListener("click", generateEtfR4Form);
@@ -446,10 +462,16 @@ function updateDashboardStats() {
         
         document.getElementById("stat-total-employees").textContent = employees.length;
         
-        const totalOt = attendance.reduce((sum, item) => sum + (item.normalOt || 0) + (item.specialOt || 0), 0);
+        const selectedMonth = document.getElementById("dash-month-select")?.value || document.getElementById("payroll-month-select").value;
+        
+        // Filter attendance for selected month
+        const monthAttendance = attendance.filter(a => {
+            if (!a.date) return false;
+            return a.date.substring(0, 7) === selectedMonth;
+        });
+        
+        const totalOt = monthAttendance.reduce((sum, item) => sum + (item.normalOt || 0) + (item.specialOt || 0), 0);
         document.getElementById("stat-ot-hours").textContent = `${totalOt.toFixed(2)}h`;
-
-        const selectedMonth = document.getElementById("payroll-month-select").value;
         
         let runs = [];
         try {
@@ -529,6 +551,14 @@ function renderDashboardCharts() {
     const employees = store.getEmployees();
     const attendance = store.getAttendance();
 
+    const selectedMonth = document.getElementById("dash-month-select")?.value || document.getElementById("payroll-month-select").value;
+
+    // Filter attendance for selected month
+    const monthAttendance = attendance.filter(a => {
+        if (!a.date) return false;
+        return a.date.substring(0, 7) === selectedMonth;
+    });
+
     const deptCounts = {};
     employees.forEach(emp => {
         deptCounts[emp.department] = (deptCounts[emp.department] || 0) + 1;
@@ -559,7 +589,7 @@ function renderDashboardCharts() {
     const empOtHours = [];
     employees.forEach(emp => {
         empNames.push(`${emp.firstName} ${emp.lastName}`);
-        const empAttendance = attendance.filter(a => a.employeeId === emp.id);
+        const empAttendance = monthAttendance.filter(a => a.employeeId === emp.id);
         const normalOt = empAttendance.reduce((sum, a) => sum + (a.normalOt || 0), 0);
         const specialOt = empAttendance.reduce((sum, a) => sum + (a.specialOt || 0), 0);
         empOtHours.push(normalOt + specialOt);
