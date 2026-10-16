@@ -20,7 +20,7 @@
 <meta property="og:image" content="https://brandspire-lk.vercel.app/images/bs-logo.png">
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+  import { getFirestore, deleteDoc, doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyB_xqN7DQVQGXk1Amph6DS9eqWXr_H3Ykw",
@@ -1062,7 +1062,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // ===== User Management (Admin Only) =====
-  function renderUsersTable() {
+  async function renderUsersTable() {
     const deptCheckboxes = document.getElementById('new-user-dept-checkboxes');
     const deptToggle = document.getElementById('dept-dropdown-toggle');
     const deptText = document.getElementById('dept-dropdown-text');
@@ -1133,7 +1133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tbody = document.querySelector('#table-users tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
-    const users = auth.getUsers();
+    const users = await auth.getUsers();
     const currentUser = auth.getCurrentUser();
 
     document.getElementById('user-count-label').textContent = users.length + ' user(s) registered';
@@ -1179,7 +1179,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Create user
   const createBtn = document.getElementById('btn-create-user');
   if (createBtn) {
-    createBtn.addEventListener('click', () => {
+    createBtn.addEventListener('click', async () => {
       const name = document.getElementById('new-user-name').value.trim();
       const pass = document.getElementById('new-user-pass').value;
       const role = document.getElementById('new-user-role').value;
@@ -1200,7 +1200,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
       }
 
-      const result = auth.createUser(name, pass, role, selectedDepts.join(', '));
+      const result = await auth.createUser(name, pass, role, selectedDepts.join(', '));
       msgEl.style.color = result.success ? '#2ecc71' : '#e74c3c';
       msgEl.textContent = result.message;
 
@@ -1217,28 +1217,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         const deptText = document.getElementById('dept-dropdown-text');
         if (deptText) deptText.textContent = "Select...";
         
-        renderUsersTable();
+        await renderUsersTable();
         setTimeout(() => { msgEl.textContent = ''; }, 3000);
       }
     });
   }
 
   // Toggle access (global function for inline onclick)
-  window.handleToggleAccess = function(username) {
-    const result = auth.toggleUserAccess(username);
+  window.handleToggleAccess = async function(username) {
+    const result = await auth.toggleUserAccess(username);
     if (result.success) {
-      renderUsersTable();
+      await renderUsersTable();
     } else {
       alert(result.message);
     }
   };
 
   // Delete user
-  window.handleDeleteUser = function(username) {
+  window.handleDeleteUser = async function(username) {
     if (confirm('Are you sure you want to delete user "' + username + '"? This cannot be undone.')) {
-      const result = auth.deleteUser(username);
+      const result = await auth.deleteUser(username);
       if (result.success) {
-        renderUsersTable();
+        await renderUsersTable();
       } else {
         alert(result.message);
       }
@@ -1264,10 +1264,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // Reset password
-  window.handleResetPassword = function(username) {
+  window.handleResetPassword = async function(username) {
     const newPass = prompt('Enter new password for "' + username + '" (min 4 characters):');
     if (newPass === null) return;
-    const result = auth.resetPassword(username, newPass);
+    const result = await auth.resetPassword(username, newPass);
     if (result.success) {
       alert(result.message);
     } else {
@@ -1276,8 +1276,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // Manage permissions
-  window.handleManagePermissions = function(username) {
-    const users = auth.getUsers();
+  window.handleManagePermissions = async function(username) {
+    const users = await auth.getUsers();
     const user = users.find(u => u.username === username);
     if (!user) return;
     document.getElementById('permissions-username').value = username;
@@ -1291,17 +1291,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const btnSavePermissions = document.getElementById('btn-save-permissions');
   if (btnSavePermissions) {
-    btnSavePermissions.addEventListener('click', () => {
+    btnSavePermissions.addEventListener('click', async () => {
       const username = document.getElementById('permissions-username').value;
       const checkboxes = document.querySelectorAll('.perm-checkbox');
       const perms = [];
       checkboxes.forEach(cb => {
         if (cb.checked) perms.push(cb.value);
       });
-      const result = auth.updateUserPermissions(username, perms);
+      const result = await auth.updateUserPermissions(username, perms);
       if (result.success) {
         document.getElementById('modal-permissions').style.display = 'none';
-        renderUsersTable();
+        await renderUsersTable();
       } else {
         alert(result.message);
       }

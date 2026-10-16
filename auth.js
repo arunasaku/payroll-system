@@ -1,7 +1,6 @@
 // auth.js – Client-side authentication for PayFlow demo
-// -----------------------------------------------------
-// Users are stored in localStorage under "payflow_users".
-// Default demo users are seeded on first load.
+// Users are stored in Firestore under "payflow_users" collection.
+// Token is stored in localStorage (session-specific, per-browser).
 // Only admin can create/manage users via the User Management panel.
 
 const DEFAULT_USERS = [
@@ -10,70 +9,140 @@ const DEFAULT_USERS = [
     { username: "employee", password: "emp123", role: "employee", department: "Sales", active: true, permissions: ['dashboard', 'attendance', 'reports'] }
 ];
 
-/** Seed default users if none exist (also self-heals corrupted/locked-out data) */
-function seedUsers() {
-    let users = [];
-    try {
-        users = JSON.parse(localStorage.getItem('payflow_users') || '[]');
-    } catch (e) {
-        users = [];
-    }
+let usersCache = [];
+let usersLoaded = false;
+let initPromise = null;
 
-    if (!Array.isArray(users) || users.length === 0) {
-        // Missing or corrupted storage — restore defaults
-        localStorage.setItem('payflow_users', JSON.stringify(DEFAULT_USERS));
-        return;
-    }
+async function ensureUsersLoaded() {
+    if (usersLoaded) return;
+    if (initPromise) { await initPromise; return; }
 
-    let changed = false;
-    // Migrate old users that don't have 'active' field
-    users.forEach(u => {
-        if (typeof u.active === 'undefined') {
-            u.active = true;
+    initPromise = (async () => {
+        try {
+            const { getDocs, collection } = window.firebaseFirestore;
+            const querySnapshot = await getDocs(collection(window.db, "payflow_users"));
+            usersCache = [];
+            querySnapshot.forEach((doc) => {
+                usersCache.push({ id: doc.id, ...doc.data() });
+            });
+        } catch (e) {
+            console.error("Error loading users from Firestore:", e);
+            usersCache = [];
+        }
+
+        if (usersCache.length === 0) {
+            // Seed defaults
+            for (const u of DEFAULT_USERS) {
+                const userCopy = { ...u };
+                try {
+                    const { setDoc, doc } = window.firebaseFirestore;
+                    await setDoc(doc(window.db, "payflow_users", userCopy.username), {
+                        username: userCopy.username,
+                        password: userCopy.password,
+                        role: userCopy.role,
+                        department: userCopy.department,
+                        active: userCopy.active,
+                        permissions: userCopy.permissions
+                    });
+                } catch (e) {
+                    console.error("Error seeding user:", e);
+                }
+            }
+            usersCache = [...DEFAULT_USERS];
+        }
+
+        let changed = false;
+        usersCache.forEach(u => {
+            if (typeof u.active === 'undefined') {
+                u.active = true;
+                changed = true;
+            }
+            if (typeof u.permissions === 'undefined') {
+                if (u.role === 'admin') u.permissions = ['dashboard', 'employees', 'attendance', 'payroll', 'reports', 'settings', 'users'];
+                else if (u.role === 'manager') u.permissions = ['dashboard', 'employees', 'attendance', 'payroll', 'reports', 'settings'];
+                else u.permissions = ['dashboard', 'employees', 'attendance', 'reports'];
+                changed = true;
+            }
+            if (Array.isArray(u.department)) {
+                u.department = u.department.join(', ');
+                changed = true;
+            }
+        });
+
+        if (!usersCache.some(u => u.role === 'admin')) {
+            const adminCopy = { ...DEFAULT_USERS[0] };
+            usersCache.push(adminCopy);
             changed = true;
         }
-        if (typeof u.permissions === 'undefined') {
-            if (u.role === 'admin') u.permissions = ['dashboard', 'employees', 'attendance', 'payroll', 'reports', 'settings', 'users'];
-            else if (u.role === 'manager') u.permissions = ['dashboard', 'employees', 'attendance', 'payroll', 'reports', 'settings'];
-            else u.permissions = ['dashboard', 'employees', 'attendance', 'reports'];
-            changed = true;
-        }
-        // Fix: Convert department array to string if needed
-        if (Array.isArray(u.department)) {
-            u.department = u.department.join(', ');
-            changed = true;
-        }
-    });
 
-    // Self-heal: if no admin account exists (e.g. deleted via User Management),
-    // restore the default admin so the system can never be locked out
-    if (!users.some(u => u.role === 'admin')) {
-        users.push({ ...DEFAULT_USERS[0] });
-        changed = true;
-    }
+        if (changed) {
+            await saveUsersToFirestore(usersCache);
+        }
 
-    if (changed) localStorage.setItem('payflow_users', JSON.stringify(users));
+        usersLoaded = true;
+    })();
+
+    await initPromise;
+    initPromise = null;
 }
-seedUsers();
 
-/** Get all registered users */
-function getUsers() {
+async function saveUsersToFirestore(users) {
     try {
-        return JSON.parse(localStorage.getItem('payflow_users')) || [];
+        const { setDoc, doc, deleteDoc } = window.firebaseFirestore;
+        // Get existing docs to find ones to delete
+        const existing = await loadUsersRaw();
+        const currentUsernames = new Set(users.map(u => u.username));
+        for (const existingUser of existing) {
+            if (!currentUsernames.has(existingUser.username)) {
+                await deleteDoc(doc(window.db, "payflow_users", existingUser.username));
+            }
+        }
+        for (const user of users) {
+            await setDoc(doc(window.db, "payflow_users", user.username), {
+                username: user.username,
+                password: user.password,
+                role: user.role,
+                department: user.department,
+                active: user.active,
+                permissions: user.permissions
+            });
+        }
     } catch (e) {
+        console.error("Error saving users to Firestore:", e);
+    }
+}
+
+async function loadUsersRaw() {
+    try {
+        const { getDocs, collection } = window.firebaseFirestore;
+        const querySnapshot = await getDocs(collection(window.db, "payflow_users"));
+        const result = [];
+        querySnapshot.forEach((doc) => {
+            result.push({ id: doc.id, ...doc.data() });
+        });
+        return result;
+    } catch (e) {
+        console.error("Error loading users raw:", e);
         return [];
     }
 }
 
+/** Get all registered users */
+async function getUsers() {
+    await ensureUsersLoaded();
+    return [...usersCache];
+}
+
 /** Save users list */
-function saveUsers(users) {
-    localStorage.setItem('payflow_users', JSON.stringify(users));
+async function saveUsers(users) {
+    usersCache = [...users];
+    await saveUsersToFirestore(users);
 }
 
 /** Attempt login */
 async function login(username, password) {
-    const users = getUsers();
-    const user = users.find(u => u.username === username && u.password === password);
+    await ensureUsersLoaded();
+    const user = usersCache.find(u => u.username === username && u.password === password);
     if (!user) return { success: false, message: "Invalid username or password." };
     if (!user.active) return { success: false, message: "Your account has been deactivated. Contact admin." };
 
@@ -88,7 +157,7 @@ async function login(username, password) {
 }
 
 /** Admin-only: Create a new user. Returns { success, message } */
-function createUser(username, password, role, department) {
+async function createUser(username, password, role, department) {
     // Check caller is admin
     const current = getCurrentUser();
     if (!current || current.role !== 'admin') {
@@ -104,26 +173,28 @@ function createUser(username, password, role, department) {
         return { success: false, message: "Password must be at least 4 characters." };
     }
 
-    const users = getUsers();
-    const exists = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    await ensureUsersLoaded();
+    const exists = usersCache.find(u => u.username.toLowerCase() === username.toLowerCase());
     if (exists) {
         return { success: false, message: "Username already exists." };
     }
 
-    users.push({
+    const newUser = {
         username: username,
         password: password,
         role: role || "employee",
         department: Array.isArray(department) ? department.join(', ') : (department || "General"),
         active: true,
         permissions: role === 'admin' ? ['dashboard', 'employees', 'attendance', 'payroll', 'reports', 'settings', 'users'] : (role === 'manager' ? ['dashboard', 'employees', 'attendance', 'payroll', 'reports', 'settings'] : ['dashboard', 'attendance', 'reports'])
-    });
-    saveUsers(users);
+    };
+
+    usersCache.push(newUser);
+    await saveUsersToFirestore(usersCache);
     return { success: true, message: "User created successfully!" };
 }
 
 /** Admin-only: Toggle user active status */
-function toggleUserAccess(username) {
+async function toggleUserAccess(username) {
     const current = getCurrentUser();
     if (!current || current.role !== 'admin') {
         return { success: false, message: "Only admin can manage users." };
@@ -132,34 +203,34 @@ function toggleUserAccess(username) {
         return { success: false, message: "You cannot deactivate your own account." };
     }
 
-    const users = getUsers();
-    const user = users.find(u => u.username === username);
+    await ensureUsersLoaded();
+    const user = usersCache.find(u => u.username === username);
     if (!user) return { success: false, message: "User not found." };
 
     user.active = !user.active;
-    saveUsers(users);
+    await saveUsersToFirestore(usersCache);
     return { success: true, message: `User "${username}" is now ${user.active ? 'active' : 'deactivated'}.` };
 }
 
 /** Admin-only: Update user role and department */
-function updateUser(username, newRole, newDepartment) {
+async function updateUser(username, newRole, newDepartment) {
     const current = getCurrentUser();
     if (!current || current.role !== 'admin') {
         return { success: false, message: "Only admin can manage users." };
     }
 
-    const users = getUsers();
-    const user = users.find(u => u.username === username);
+    await ensureUsersLoaded();
+    const user = usersCache.find(u => u.username === username);
     if (!user) return { success: false, message: "User not found." };
 
     if (newRole) user.role = newRole;
     if (newDepartment) user.department = newDepartment;
-    saveUsers(users);
+    await saveUsersToFirestore(usersCache);
     return { success: true, message: `User "${username}" updated.` };
 }
 
 /** Admin-only: Delete a user */
-function deleteUser(username) {
+async function deleteUser(username) {
     const current = getCurrentUser();
     if (!current || current.role !== 'admin') {
         return { success: false, message: "Only admin can delete users." };
@@ -168,17 +239,17 @@ function deleteUser(username) {
         return { success: false, message: "You cannot delete your own account." };
     }
 
-    let users = getUsers();
-    const before = users.length;
-    users = users.filter(u => u.username !== username);
-    if (users.length === before) return { success: false, message: "User not found." };
+    await ensureUsersLoaded();
+    const before = usersCache.length;
+    usersCache = usersCache.filter(u => u.username !== username);
+    if (usersCache.length === before) return { success: false, message: "User not found." };
 
-    saveUsers(users);
+    await saveUsersToFirestore(usersCache);
     return { success: true, message: `User "${username}" deleted.` };
 }
 
 /** Admin-only: Reset a user's password */
-function resetPassword(username, newPassword) {
+async function resetPassword(username, newPassword) {
     const current = getCurrentUser();
     if (!current || current.role !== 'admin') {
         return { success: false, message: "Only admin can reset passwords." };
@@ -187,12 +258,12 @@ function resetPassword(username, newPassword) {
         return { success: false, message: "Password must be at least 4 characters." };
     }
 
-    const users = getUsers();
-    const user = users.find(u => u.username === username);
+    await ensureUsersLoaded();
+    const user = usersCache.find(u => u.username === username);
     if (!user) return { success: false, message: "User not found." };
 
     user.password = newPassword;
-    saveUsers(users);
+    await saveUsersToFirestore(usersCache);
     return { success: true, message: `Password for "${username}" has been reset.` };
 }
 
@@ -216,18 +287,18 @@ function requireAuth() {
 }
 
 /** Admin-only: Update user permissions */
-function updateUserPermissions(username, permissionsArray) {
+async function updateUserPermissions(username, permissionsArray) {
     const current = getCurrentUser();
     if (!current || current.role !== 'admin') {
         return { success: false, message: "Only admin can manage permissions." };
     }
 
-    const users = getUsers();
-    const user = users.find(u => u.username === username);
+    await ensureUsersLoaded();
+    const user = usersCache.find(u => u.username === username);
     if (!user) return { success: false, message: "User not found." };
 
     user.permissions = permissionsArray;
-    saveUsers(users);
+    await saveUsersToFirestore(usersCache);
 
     // If updating own permissions, update token
     if (username === current.username) {
@@ -237,6 +308,9 @@ function updateUserPermissions(username, permissionsArray) {
 
     return { success: true, message: `Permissions for "${username}" updated.` };
 }
+
+// Initialize users on load
+ensureUsersLoaded();
 
 // Export for use in other scripts (browser globals)
 window.auth = {
