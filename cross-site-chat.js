@@ -11,7 +11,7 @@
   // Channel: 'cross' = Unicat <-> Payroll | 'admins' = OPR-to-OPR inside payroll
   let channelMode = 'cross';
   let targetAdmin = ''; // '' = all payroll admins
-  let chatOpen = false;
+  let pkgOpen = false;
   let messages = [];
   let pollInterval = null;
   let attachedFile = null;
@@ -323,7 +323,7 @@
     script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
     script.onload = () => {
       if (MY_USERNAME === 'admin') {
-        // The 'admin' account also owns the cross-site bridge ID
+        // The 'admin' account also owns the XST bridge ID
         const p = createPeer('payroll-peer-admin');
         p.on('open', () => {
           peers.cross = p;
@@ -397,7 +397,7 @@
     }
 
     // Open the PKG if minimized
-    if (!chatOpen) toggleChat(true);
+    if (!pkgOpen) togglePkg(true);
 
     document.getElementById('sds-answer-btn').onclick = () => answerCall();
     document.getElementById('sds-decline-btn').onclick = () => declineCall();
@@ -675,7 +675,7 @@
     fab.id = 'sds-fab';
     fab.innerHTML = '🛡️';
     fab.title = 'SVS';
-    fab.onclick = () => toggleChat();
+    fab.onclick = () => togglePkg();
     document.body.appendChild(fab);
 
     const container = document.createElement('div');
@@ -748,8 +748,8 @@
     document.body.appendChild(container);
 
     // Event listeners
-    document.getElementById('sds-close-btn').onclick = () => toggleChat(false);
-    document.getElementById('sds-min-btn').onclick = () => toggleChat(false);
+    document.getElementById('sds-close-btn').onclick = () => togglePkg(false);
+    document.getElementById('sds-min-btn').onclick = () => togglePkg(false);
     document.getElementById('sds-send-btn').onclick = sendMessage;
     document.getElementById('sds-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') sendMessage();
@@ -825,14 +825,14 @@
     };
   }
 
-  function toggleChat(forceState) {
+  function togglePkg(forceState) {
     const container = document.getElementById('sds-container');
     const fab = document.getElementById('sds-fab');
     if (!container || !fab) return;
 
-    chatOpen = forceState !== undefined ? forceState : !chatOpen;
+    pkgOpen = forceState !== undefined ? forceState : !pkgOpen;
 
-    if (chatOpen) {
+    if (pkgOpen) {
       container.style.display = 'flex';
       fab.style.display = 'none';
       startPolling();
@@ -849,21 +849,21 @@
     return !!(el && el.classList.contains('active-view'));
   }
 
-  function updateChatLauncherVisibility() {
+  function updatePkgLauncherVisibility() {
     const show = isSettingsViewActive();
     // CLS the widget when navigating away from Settings
-    if (!show && chatOpen) toggleChat(false);
+    if (!show && pkgOpen) togglePkg(false);
     const fab = document.getElementById('sds-fab');
     if (fab) fab.style.display = show ? 'flex' : 'none';
   }
 
   function initSettingsOnlyVisibility() {
-    updateChatLauncherVisibility();
-    window.addEventListener('hashchange', updateChatLauncherVisibility);
+    updatePkgLauncherVisibility();
+    window.addEventListener('hashchange', updatePkgLauncherVisibility);
     // Fallback: catch direct class swaps that don't touch the hash
     const views = document.querySelectorAll('.app-view');
     if (views.length && 'MutationObserver' in window) {
-      const observer = new MutationObserver(updateChatLauncherVisibility);
+      const observer = new MutationObserver(updatePkgLauncherVisibility);
       views.forEach(v => observer.observe(v, { attributes: true, attributeFilter: ['class'] }));
     }
   }
@@ -967,21 +967,21 @@
 
     // Public API for the Settings page (OPR-to-OPR PKG/CNCT)
     window.SDS = {
-      openChat: function (channel, target) {
+      openPkg: function (channel, target) {
         setChannel(channel === 'admins' ? 'admins' : 'cross');
         if (target) {
           targetAdmin = target;
           const sel = document.getElementById('sds-target-admin');
           if (sel) sel.value = target;
         }
-        toggleChat(true);
+        togglePkg(true);
       },
       call: function (target, type) {
         setChannel('admins');
         targetAdmin = target || '';
         const sel = document.getElementById('sds-target-admin');
         if (sel && target) sel.value = target;
-        toggleChat(true);
+        togglePkg(true);
         initiateAdminCall(type || 'voice');
       },
     };
