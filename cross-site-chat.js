@@ -50,7 +50,7 @@
   }
 
   // ── DLT (disappearing pkgs) ─────────────────────────
-  let deleteAfterSeconds = 0; // 0 = never
+  let deleteAfterSeconds = 60; // 60s = default auto-delete
   const firstSeenAt = new Map();
   const deleteTimers = new Map();
 
@@ -718,11 +718,11 @@
         <button id="sds-call-voice" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="CNCT (AUD)">📞 CNCT (AUD)</button>
         <button id="sds-call-video" style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="CNCT (VID)">📹 CNCT (VID)</button>
         <select id="sds-autodelete" style="background:#ffffff;color:#2563eb;font-size:9px;font-weight:700;border:1px solid #cbd5e1;border-radius:4px;padding:2px 4px;cursor:pointer;" title="DLT pkgs after read">
-          <option value="0">DLT PKG: Never</option>
           <option value="5">5s</option>
           <option value="10">10s</option>
           <option value="15">15s</option>
           <option value="60">1 min</option>
+          <option value="180">3 min</option>
         </select>
         <span id="sds-msg-count" style="font-size:9px;color:#64748b;font-family:monospace;margin-left:4px;">0 pkgs</span>
       </div>
