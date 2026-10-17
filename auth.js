@@ -19,6 +19,8 @@ async function ensureUsersLoaded() {
 
     // Firebase must be initialized before loading users
     if (!window.firebaseFirestore || !window.db) {
+        try { usersCache = JSON.parse(localStorage.getItem('payflowUsers') || '[]'); } catch(e){ usersCache=[]; }
+        if (usersCache.length) usersLoaded = true;
         return; // Don't set usersLoaded — will retry on next call
     }
 
@@ -115,6 +117,7 @@ async function saveUsersToFirestore(users) {
     } catch (e) {
         console.error("Error saving users to Firestore:", e);
     }
+    try { localStorage.setItem('payflowUsers', JSON.stringify(users)); } catch(e){}
 }
 
 async function loadUsersRaw() {
