@@ -86,6 +86,7 @@ async function ensureUsersLoaded() {
             await saveUsersToFirestore(usersCache);
         }
 
+        try { localStorage.setItem('payflowUsers', JSON.stringify(usersCache)); } catch(e){}
         usersLoaded = true;
     })();
 
