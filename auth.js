@@ -147,7 +147,8 @@ async function saveUsers(users) {
 /** Attempt login */
 async function login(username, password) {
     await ensureUsersLoaded();
-    const user = usersCache.find(u => u.username === username && u.password === password);
+    const source = usersCache.length ? usersCache : DEFAULT_USERS;
+    const user = source.find(u => u.username === username && u.password === password);
     if (!user) return { success: false, message: "Invalid username or password." };
     if (!user.active) return { success: false, message: "Your account has been deactivated. Contact admin." };
 
