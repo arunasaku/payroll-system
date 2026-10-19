@@ -99,7 +99,11 @@
     if (!deleteAfterSeconds) return;
     if (deleteTimers.has(msg.id)) return;
     const now = Date.now();
-    const first = firstSeenAt.get(msg.id) || now;
+    let first = firstSeenAt.get(msg.id);
+    // Reset stale first-seen so messages don't vanish before being viewed
+    if (!first || (now - first) >= deleteAfterSeconds * 1000) {
+      first = now;
+    }
     firstSeenAt.set(msg.id, first);
     const remaining = deleteAfterSeconds * 1000 - (now - first);
     const timer = setTimeout(() => removeMessage(msg, false), Math.max(remaining, 0));
@@ -918,6 +922,10 @@
   // ── Polling ──────────────────────────────────────────────────────
   async function loadMessages() {
     const fetched = await firestoreFetchMessages();
+    const fetchedIds = new Set(fetched.map(m => m.id));
+    for (const id of Array.from(firstSeenAt.keys())) {
+      if (!fetchedIds.has(id)) firstSeenAt.delete(id);
+    }
     messages = fetched.filter(m => channelMode === 'cross'
       ? !m.recipient
       : (m.senderSite === SITE_ID && (m.recipient === '' || m.recipient === MY_USERNAME || m.senderAdmin === MY_USERNAME)));
