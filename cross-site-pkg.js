@@ -98,6 +98,9 @@
   function scheduleAutoDelete(msg) {
     if (!deleteAfterSeconds) return;
     if (deleteTimers.has(msg.id)) return;
+    // Do not auto-delete on sender side; only delete when receiver views it
+    const isSender = (channelMode === 'cross') ? (msg.senderSite === SITE_ID) : (msg.senderAdmin === MY_USERNAME);
+    if (isSender) return;
     const now = Date.now();
     let first = firstSeenAt.get(msg.id);
     // Reset stale first-seen so messages don't vanish before being viewed
