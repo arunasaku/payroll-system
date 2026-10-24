@@ -9,7 +9,7 @@
   let ADMIN_NAME = 'Payroll OPR';
   let MY_USERNAME = 'admin';
   // Channel: 'cross' = Unicat <-> Payroll | 'admins' = OPR-to-OPR inside payroll
-  let channelMode = 'cross';
+  let channelMode = 'admins';
   let targetAdmin = ''; // '' = all payroll admins
   let pkgOpen = false;
   let messages = [];
@@ -205,10 +205,12 @@
       const wrapper = document.createElement('div');
       wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;animation:sdsIn 0.3s;`;
 
-      const badge = document.createElement('span');
-      badge.style.cssText = `font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;${isMe ? 'background:rgba(59,130,246,0.15);color:#2563eb;border:1px solid rgba(59,130,246,0.3);' : 'background:rgba(239,68,68,0.15);color:#dc2626;border:1px solid rgba(239,68,68,0.3);'}`;
-      badge.textContent = `${msg.senderSite.toUpperCase()} • ${msg.senderAdmin}${msg.recipient ? ' → ' + msg.recipient : ''}`;
-      wrapper.appendChild(badge);
+      if (isMe) {
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;background:rgba(59,130,246,0.15);color:#2563eb;border:1px solid rgba(59,130,246,0.3);';
+        badge.textContent = `${msg.senderSite.toUpperCase()} • ${msg.senderAdmin}${msg.recipient ? ' → ' + msg.recipient : ''}`;
+        wrapper.appendChild(badge);
+      }
 
       const bubble = document.createElement('div');
       bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#dbeafe;color:#1e293b;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(59,130,246,0.2);' : 'background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);'}`;
@@ -725,15 +727,11 @@
       </div>
 
       <!-- Site indicator + channel tabs -->
-      <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;">
-        <div style="display:flex;align-items:center;gap:6px;">
-          <span id="sds-peer-left" style="background:rgba(59,130,246,0.2);color:#2563eb;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(59,130,246,0.3);">PAYROLL</span>
-          <span id="sds-peer-arrow" style="color:#94a3b8;font-size:12px;">↔</span>
-          <span id="sds-peer-right" style="background:rgba(239,68,68,0.2);color:#dc2626;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(239,68,68,0.3);display:inline-flex;align-items:center;gap:4px;">UNICAT <span id="sds-unicat-status-dot" style="width:6px;height:6px;background:#94a3b8;border-radius:50%;display:inline-block;"></span></span>
-        </div>
+      <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:flex-end;">
         <div style="display:flex;align-items:center;gap:4px;">
-          <button id="sds-ch-cross" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="XST pkg (XST)">XST</button>
-          <button id="sds-ch-admins" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="PKG/CNCT OPRs">OPRs</button>
+          <button id="sds-ch-admins" style="background:#1e3a8a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="PKG/CNCT OPRs">OPRs</button>
+          <button id="sds-ch-cross" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="XST pkg (XST)">XST</button>
+          <span id="sds-unicat-status-dot" style="width:6px;height:6px;background:#94a3b8;border-radius:50%;display:inline-block;margin-left:2px;" title="Unicat status"></span>
           <select id="sds-target-admin" style="display:none;background:#ffffff;color:#d97706;font-size:9px;font-weight:700;border:1px solid #cbd5e1;border-radius:4px;padding:2px 4px;cursor:pointer;max-width:110px;" title="Target OPR"></select>
         </div>
       </div>
@@ -932,7 +930,7 @@
     } else {
       if (left) left.textContent = 'PAYROLL';
       if (right) right.textContent = 'UNICAT';
-      if (input) input.placeholder = 'ENC pkg...';
+      if (input) input.placeholder = 'Message...';
       if (crossBtn) crossBtn.style.cssText = activeStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
       if (adminsBtn) adminsBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
     }
@@ -965,17 +963,17 @@
       const data = await resp.json();
       const dot = document.getElementById('sds-unicat-status-dot');
       const badge = document.getElementById('sds-peer-right');
-      if (!dot || !badge) return;
+      if (!dot) return;
       const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
       const isOnline = lastSeen && (Date.now() - lastSeen < 15000);
       if (isOnline) {
         dot.style.background = '#22c55e';
         dot.style.boxShadow = '0 0 6px #22c55e';
-        badge.title = 'Unicat is LIVE now';
+        if (badge) badge.title = 'Unicat is LIVE now'; dot.title = 'Unicat is LIVE now';
       } else {
         dot.style.background = '#94a3b8';
         dot.style.boxShadow = 'none';
-        badge.title = 'Unicat offline';
+        if (badge) badge.title = 'Unicat offline'; dot.title = 'Unicat offline';
       }
     } catch (e) {}
   }
@@ -1010,6 +1008,7 @@
 
     injectStyles();
     buildUI();
+    setChannel('admins');
 
     const label = document.getElementById('sds-admin-label');
     if (label) label.textContent = ADMIN_NAME;
