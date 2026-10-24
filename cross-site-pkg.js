@@ -40,6 +40,7 @@
         fileName:    { stringValue: msg.fileName || '' },
         fileData:    { stringValue: msg.fileData || '' },
         createdAt:   { stringValue: msg.createdAt },
+        timerSec:    { integerValue: String(msg.timerSec || 60) },
       },
     };
     await fetch(`${FIRESTORE_BASE}/crossSiteChat?documentId=${msg.id}`, {
@@ -56,7 +57,7 @@
 
   function loadAutoDeleteSetting() {
     try {
-      deleteAfterSeconds = parseInt(localStorage.getItem('sds_autodelete') || '0', 10) || 0;
+      deleteAfterSeconds = parseInt(localStorage.getItem('sds_autodelete') || '60', 10) || 60;
     } catch (e) {
       deleteAfterSeconds = 0;
     }
@@ -96,19 +97,19 @@
   }
 
   function scheduleAutoDelete(msg) {
-    if (!deleteAfterSeconds) return;
-    if (deleteTimers.has(msg.id)) return;
     // Do not auto-delete on sender side; only delete when receiver views it
     const isSender = (channelMode === 'cross') ? (msg.senderSite === SITE_ID) : (msg.senderAdmin === MY_USERNAME);
     if (isSender) return;
+    const durationSec = msg.timerSec || deleteAfterSeconds || 60;
+    if (deleteTimers.has(msg.id)) return;
     const now = Date.now();
     let first = firstSeenAt.get(msg.id);
     // Reset stale first-seen so messages don't vanish before being viewed
-    if (!first || (now - first) >= deleteAfterSeconds * 1000) {
+    if (!first || (now - first) >= durationSec * 1000) {
       first = now;
     }
     firstSeenAt.set(msg.id, first);
-    const remaining = deleteAfterSeconds * 1000 - (now - first);
+    const remaining = durationSec * 1000 - (now - first);
     const timer = setTimeout(() => removeMessage(msg, false), Math.max(remaining, 0));
     deleteTimers.set(msg.id, timer);
   }
@@ -145,6 +146,7 @@
             fileName:    f.fileName?.stringValue || null,
             fileData:    f.fileData?.stringValue || null,
             createdAt:   f.createdAt?.stringValue || '',
+            timerSec:    f.timerSec?.integerValue ? parseInt(f.timerSec.integerValue, 10) : (f.timerSec?.stringValue ? parseInt(f.timerSec.stringValue, 10) : undefined),
           };
         });
     } catch (err) {
@@ -267,6 +269,7 @@
       fileName: attachedFile ? attachedFile.name : null,
       fileData: attachedFile ? attachedFile.data : null,
       createdAt: new Date().toISOString(),
+      timerSec: deleteAfterSeconds || 60,
     };
 
     try {
@@ -725,11 +728,12 @@
         <button id="sds-call-voice" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="CNCT (AUD)">📞 CNCT (AUD)</button>
         <button id="sds-call-video" style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:background 0.2s;" title="CNCT (VID)">📹 CNCT (VID)</button>
         <select id="sds-autodelete" style="background:#ffffff;color:#2563eb;font-size:9px;font-weight:700;border:1px solid #cbd5e1;border-radius:4px;padding:2px 4px;cursor:pointer;" title="DLT pkgs after read">
-          <option value="5">5s</option>
-          <option value="10">10s</option>
-          <option value="15">15s</option>
+          <option value="10">10 sec</option>
+          <option value="30">30 sec</option>
           <option value="60">1 min</option>
+          <option value="120">2 min</option>
           <option value="180">3 min</option>
+          <option value="300">5 min</option>
         </select>
         <span id="sds-msg-count" style="font-size:9px;color:#64748b;font-family:monospace;margin-left:4px;">0 pkgs</span>
       </div>
