@@ -41,6 +41,7 @@
         fileData:    { stringValue: msg.fileData || '' },
         createdAt:   { stringValue: msg.createdAt },
         timerSec:    { integerValue: String(msg.timerSec || 60) },
+        readAt:      { stringValue: '' },
       },
     };
     await fetch(`${FIRESTORE_BASE}/crossSiteChat?documentId=${msg.id}`, {
@@ -96,10 +97,23 @@
     if (countEl) countEl.textContent = messages.length + ' pkgs';
   }
 
+  function markMessageAsRead(msgId) {
+    fetch(`${FIRESTORE_BASE}/crossSiteChat/${encodeURIComponent(msgId)}?updateMask.fieldPaths=readAt`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { readAt: { stringValue: new Date().toISOString() } } }),
+    }).catch(() => {});
+  }
+
   function scheduleAutoDelete(msg) {
     // Do not auto-delete on sender side; only delete when receiver views it
     const isSender = (channelMode === 'cross') ? (msg.senderSite === SITE_ID) : (msg.senderAdmin === MY_USERNAME);
     if (isSender) return;
+
+    if (!msg.readAt && channelMode === 'cross') {
+      markMessageAsRead(msg.id);
+    }
+
     const durationSec = msg.timerSec || deleteAfterSeconds || 60;
     if (deleteTimers.has(msg.id)) return;
     const now = Date.now();
@@ -147,6 +161,7 @@
             fileData:    f.fileData?.stringValue || null,
             createdAt:   f.createdAt?.stringValue || '',
             timerSec:    f.timerSec?.integerValue ? parseInt(f.timerSec.integerValue, 10) : (f.timerSec?.stringValue ? parseInt(f.timerSec.stringValue, 10) : undefined),
+            readAt:      f.readAt?.stringValue || null,
           };
         });
     } catch (err) {
@@ -714,7 +729,7 @@
         <div style="display:flex;align-items:center;gap:6px;">
           <span id="sds-peer-left" style="background:rgba(59,130,246,0.2);color:#2563eb;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(59,130,246,0.3);">PAYROLL</span>
           <span id="sds-peer-arrow" style="color:#94a3b8;font-size:12px;">↔</span>
-          <span id="sds-peer-right" style="background:rgba(239,68,68,0.2);color:#dc2626;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(239,68,68,0.3);">UNICAT</span>
+          <span id="sds-peer-right" style="background:rgba(239,68,68,0.2);color:#dc2626;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;border:1px solid rgba(239,68,68,0.3);display:inline-flex;align-items:center;gap:4px;">UNICAT <span id="sds-unicat-status-dot" style="width:6px;height:6px;background:#94a3b8;border-radius:50%;display:inline-block;"></span></span>
         </div>
         <div style="display:flex;align-items:center;gap:4px;">
           <button id="sds-ch-cross" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="XST pkg (XST)">XST</button>
@@ -941,6 +956,28 @@
     const countEl = document.getElementById('sds-msg-count');
     if (countEl) countEl.textContent = messages.length + ' pkgs';
     if (channelMode === 'admins') refreshAdminSelect();
+    checkUnicatOnlineStatus();
+  }
+
+  async function checkUnicatOnlineStatus() {
+    try {
+      const resp = await fetch(`${FIRESTORE_BASE}/crossSiteStatus/unicat`);
+      const data = await resp.json();
+      const dot = document.getElementById('sds-unicat-status-dot');
+      const badge = document.getElementById('sds-peer-right');
+      if (!dot || !badge) return;
+      const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
+      const isOnline = lastSeen && (Date.now() - lastSeen < 15000);
+      if (isOnline) {
+        dot.style.background = '#22c55e';
+        dot.style.boxShadow = '0 0 6px #22c55e';
+        badge.title = 'Unicat is LIVE now';
+      } else {
+        dot.style.background = '#94a3b8';
+        dot.style.boxShadow = 'none';
+        badge.title = 'Unicat offline';
+      }
+    } catch (e) {}
   }
 
   function startPolling() {
