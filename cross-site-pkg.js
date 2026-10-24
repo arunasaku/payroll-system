@@ -893,14 +893,31 @@
   }
 
   // ── Channel switching ───────────────────────────────────────────
-  function refreshAdminSelect() {
+  function parseUsersArray(raw) {
+    let result = raw;
+    if (result && typeof result === 'object' && !Array.isArray(result)) {
+      if (result.error) {
+        console.error('[cross-site-pkg] Database/API error when loading users:', result.error);
+      }
+      if (Array.isArray(result.data)) {
+        result = result.data;
+      } else if (Array.isArray(result.users)) {
+        result = result.users;
+      } else if (Array.isArray(result.results)) {
+        result = result.results;
+      } else {
+        console.warn('[cross-site-pkg] Unexpected users data structure, expected Array:', result);
+        result = [];
+      }
+    }
+    return Array.isArray(result) ? result : [];
+  }
+
+  function applyAdminsToSelect(rawUsers) {
     const sel = document.getElementById('sds-target-admin');
     if (!sel) return;
-    let users = [];
-    try {
-      users = (window.auth && typeof auth.getUsers === 'function') ? auth.getUsers() : [];
-    } catch (e) { users = []; }
-    const admins = users.filter(u => u.role === 'admin' && u.username !== MY_USERNAME);
+    const users = parseUsersArray(rawUsers);
+    const admins = users.filter(u => u && u.role === 'admin' && u.username !== MY_USERNAME);
     const current = sel.value;
     sel.innerHTML = '<option value="">All OPRs</option>' + admins.map(u =>
       `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`
@@ -909,7 +926,37 @@
     sel.style.display = (channelMode === 'admins' && admins.length > 0) ? 'inline-block' : 'none';
   }
 
-  function setChannel(mode) {
+  async function refreshAdminSelect() {
+    const sel = document.getElementById('sds-target-admin');
+    if (!sel) return;
+
+    const authObj = window.auth || (typeof auth !== 'undefined' ? auth : null);
+
+    // Fast-path: immediately populate from synchronous cache / localStorage to prevent flicker
+    try {
+      if (authObj && typeof authObj.getCachedUsers === 'function') {
+        applyAdminsToSelect(authObj.getCachedUsers());
+      } else {
+        const local = JSON.parse(localStorage.getItem('payflowUsers') || '[]');
+        if (Array.isArray(local) && local.length > 0) {
+          applyAdminsToSelect(local);
+        }
+      }
+    } catch (_) {}
+
+    // Async-path: await auth.getUsers() to get live data from Firestore / database
+    try {
+      if (authObj && typeof authObj.getUsers === 'function') {
+        const res = authObj.getUsers();
+        const users = (res && typeof res.then === 'function') ? await res : res;
+        applyAdminsToSelect(users);
+      }
+    } catch (e) {
+      console.error('[cross-site-pkg] Failed to refresh admin select from auth.getUsers():', e);
+    }
+  }
+
+  async function setChannel(mode) {
     channelMode = mode;
     targetAdmin = '';
     const sel = document.getElementById('sds-target-admin');
@@ -935,7 +982,7 @@
       if (adminsBtn) adminsBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
     }
     clearAutoDeleteTimers();
-    refreshAdminSelect();
+    await refreshAdminSelect();
     loadMessages();
   }
 
@@ -953,7 +1000,7 @@
     messages.forEach(scheduleAutoDelete);
     const countEl = document.getElementById('sds-msg-count');
     if (countEl) countEl.textContent = messages.length + ' pkgs';
-    if (channelMode === 'admins') refreshAdminSelect();
+    if (channelMode === 'admins') await refreshAdminSelect();
     checkUnicatOnlineStatus();
   }
 

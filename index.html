@@ -1134,13 +1134,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const tbody = document.querySelector('#table-users tbody');
     if (!tbody) return;
-    tbody.innerHTML = '';
-    const users = await auth.getUsers();
-    const currentUser = auth.getCurrentUser();
+    let users = await auth.getUsers();
+    if (users && typeof users === 'object' && !Array.isArray(users)) {
+      if (Array.isArray(users.data)) users = users.data;
+      else if (Array.isArray(users.users)) users = users.users;
+    }
+    if (!Array.isArray(users)) users = [];
+    const currentUser = auth.getCurrentUser() || {};
 
-    document.getElementById('user-count-label').textContent = users.length + ' user(s) registered';
+    const countLabel = document.getElementById('user-count-label');
+    if (countLabel) countLabel.textContent = users.length + ' user(s) registered';
 
     users.forEach(u => {
+      if (!u) return;
       const isSelf = u.username === currentUser.username;
       const statusBadge = u.active
         ? '<span class="badge badge-success">Active</span>'
@@ -1279,8 +1285,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Manage permissions
   window.handleManagePermissions = async function(username) {
-    const users = await auth.getUsers();
-    const user = users.find(u => u.username === username);
+    let users = await auth.getUsers();
+    if (users && typeof users === 'object' && !Array.isArray(users)) {
+      if (Array.isArray(users.data)) users = users.data;
+      else if (Array.isArray(users.users)) users = users.users;
+    }
+    if (!Array.isArray(users)) users = [];
+    const user = users.find(u => u && u.username === username);
     if (!user) return;
     document.getElementById('permissions-username').value = username;
     document.getElementById('permissions-title').textContent = `Manage Permissions: ${username}`;

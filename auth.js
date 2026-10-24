@@ -34,7 +34,16 @@ async function ensureUsersLoaded() {
             });
         } catch (e) {
             console.error("Error loading users from Firestore:", e);
-            usersCache = [];
+            try {
+                const local = JSON.parse(localStorage.getItem('payflowUsers') || '[]');
+                if (Array.isArray(local) && local.length > 0) {
+                    usersCache = local;
+                } else {
+                    usersCache = [];
+                }
+            } catch (_) {
+                usersCache = [];
+            }
         }
 
         if (usersCache.length === 0) {
@@ -136,10 +145,28 @@ async function loadUsersRaw() {
     }
 }
 
+/** Synchronous helper to get cached users array safely */
+function getCachedUsers() {
+    if (Array.isArray(usersCache) && usersCache.length > 0) {
+        return [...usersCache];
+    }
+    try {
+        const local = JSON.parse(localStorage.getItem('payflowUsers') || '[]');
+        if (Array.isArray(local) && local.length > 0) {
+            return local;
+        }
+    } catch (_) {}
+    return Array.isArray(DEFAULT_USERS) ? [...DEFAULT_USERS] : [];
+}
+
 /** Get all registered users */
 async function getUsers() {
-    await ensureUsersLoaded();
-    return [...usersCache];
+    try {
+        await ensureUsersLoaded();
+    } catch (e) {
+        console.error("Error ensuring users loaded in auth.getUsers:", e);
+    }
+    return getCachedUsers();
 }
 
 /** Save users list */
@@ -251,8 +278,9 @@ async function deleteUser(username) {
     }
 
     await ensureUsersLoaded();
+    if (!Array.isArray(usersCache)) usersCache = [];
     const before = usersCache.length;
-    usersCache = usersCache.filter(u => u.username !== username);
+    usersCache = usersCache.filter(u => u && u.username !== username);
     if (usersCache.length === before) return { success: false, message: "User not found." };
 
     await saveUsersToFirestore(usersCache);
@@ -326,5 +354,5 @@ ensureUsersLoaded();
 // Export for use in other scripts (browser globals)
 window.auth = {
     login, logout, getCurrentUser, requireAuth,
-    getUsers, createUser, toggleUserAccess, updateUser, deleteUser, resetPassword, updateUserPermissions
+    getUsers, getCachedUsers, createUser, toggleUserAccess, updateUser, deleteUser, resetPassword, updateUserPermissions
 };
