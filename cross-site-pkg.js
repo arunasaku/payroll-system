@@ -708,7 +708,7 @@
       <!-- Video container -->
       <div style="width:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0f172a;border-radius:12px;border:1px solid #334155;overflow:hidden;position:relative;margin-bottom:16px;min-height:200px;">
         ${activeCallType === 'video' ? `
-          <video id="sds-remote-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
+          <video id="sds-remote-video" autoplay playsinline style="width:100%;height:100%;object-fit:cover;"></video>
           <div style="position:absolute;bottom:8px;right:8px;width:80px;height:100px;background:#f1f5f9;border-radius:8px;border:1px solid #94a3b8;overflow:hidden;">
             <video id="sds-local-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);"></video>
           </div>
@@ -732,6 +732,22 @@
 
     // Attach streams to video/audio elements
     setTimeout(() => {
+      // 1. Dedicated remote audio playback for ALL transmissions (both voice and video)
+      let audioEl = document.getElementById('sds-remote-audio');
+      if (!audioEl) {
+        audioEl = document.createElement('audio');
+        audioEl.id = 'sds-remote-audio';
+        audioEl.autoplay = true;
+        audioEl.playsInline = true;
+        audioEl.style.cssText = 'position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;top:-100px;';
+        document.body.appendChild(audioEl);
+      }
+      if (remoteStream && audioEl.srcObject !== remoteStream) {
+        audioEl.srcObject = remoteStream;
+      }
+      if (audioEl) audioEl.play().catch(() => {});
+
+      // 2. Video elements
       if (activeCallType === 'video') {
         const localVideo = document.getElementById('sds-local-video');
         const remoteVideo = document.getElementById('sds-remote-video');
@@ -743,17 +759,6 @@
           remoteVideo.srcObject = remoteStream;
           remoteVideo.play().catch(() => {});
         }
-      } else {
-        // Voice call: play remote audio via a hidden <audio> element
-        let audioEl = document.getElementById('sds-remote-audio');
-        if (!audioEl) {
-          audioEl = document.createElement('audio');
-          audioEl.id = 'sds-remote-audio';
-          audioEl.autoplay = true;
-          audioEl.style.display = 'none';
-          document.body.appendChild(audioEl);
-        }
-        if (remoteStream) audioEl.srcObject = remoteStream;
       }
     }, 100);
 
@@ -1189,19 +1194,29 @@
 
   // ── Init ─────────────────────────────────────────────────────────
   function init() {
+    let u = null;
     try {
-      const u = (window.auth && typeof auth.getCurrentUser === 'function') ? auth.getCurrentUser() : null;
-      if (u && u.username) {
-        MY_USERNAME = u.username;
-        ADMIN_NAME = u.username;
-      } else {
-        const legacy = JSON.parse(localStorage.getItem('hr_current_user') || '{}');
-        if (legacy && legacy.username) {
-          MY_USERNAME = legacy.username;
-          ADMIN_NAME = legacy.username;
-        }
+      u = (window.auth && typeof auth.getCurrentUser === 'function') ? auth.getCurrentUser() : null;
+      if (!u) {
+        const legacy = JSON.parse(localStorage.getItem('payflowToken') || localStorage.getItem('hr_current_user') || 'null');
+        if (legacy && legacy.username) u = legacy;
       }
     } catch (e) {}
+
+    // Strict Admin Guard: Only users with role === 'admin' or username === 'admin' have SVS enabled
+    const isAdmin = u && (u.role === 'admin' || u.username === 'admin');
+    if (!isAdmin) {
+      window.SDS = {
+        openPkg: function() {},
+        call: function() {},
+      };
+      return;
+    }
+
+    if (u && u.username) {
+      MY_USERNAME = u.username;
+      ADMIN_NAME = u.username;
+    }
 
     loadAutoDeleteSetting();
 

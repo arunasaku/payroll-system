@@ -549,7 +549,7 @@ function renderDashboardAbsentees() {
                 return `
                 <div style="background-color: #3abff8; color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 3px; " 
                      title="On Leave"
-                     ${isTarget ? 'onclick="if(window.SDS){window.SDS.openPkg(\'admins\');}"' : ''}>
+                     ${isTarget && isUserAdmin ? 'onclick="if(window.SDS){window.SDS.openPkg(\'admins\');}"' : ''}>
                     <i data-lucide="calendar" style="width: 14px; height: 14px;"></i> ${emp.firstName} ${emp.lastName}
                 </div>
             `}).join("");
@@ -559,7 +559,7 @@ function renderDashboardAbsentees() {
                 return `
                 <div style="background-color: var(--danger); color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 3px; " 
                      title="Absent"
-                     ${isTarget ? 'onclick="if(window.SDS){window.SDS.openPkg(\'admins\');}"' : ''}>
+                     ${isTarget && isUserAdmin ? 'onclick="if(window.SDS){window.SDS.openPkg(\'admins\');}"' : ''}>
                     <i data-lucide="user-x" style="width: 14px; height: 14px;"></i> ${emp.firstName} ${emp.lastName}
                 </div>
             `}).join("");
