@@ -531,15 +531,30 @@
     document.getElementById('sds-decline-btn').onclick = () => declineCall();
   }
 
+  async function getPayrollMediaStream(wantVideo) {
+    if (wantVideo) {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        });
+        if (s.getVideoTracks().length > 0) return s;
+      } catch (e1) {
+        try {
+          const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          if (s.getVideoTracks().length > 0) return s;
+        } catch (e2) {}
+      }
+    }
+    return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  }
+
   async function answerCall() {
     if (!incomingCallData) return;
     const { mediaCall, callType } = incomingCallData;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: callType === 'video',
-      });
+      const stream = await getPayrollMediaStream(callType === 'video');
       localStream = stream;
       activeCallType = callType;
       activeCallConnection = mediaCall;
@@ -583,22 +598,10 @@
 
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: type === 'video',
-      });
+      stream = await getPayrollMediaStream(type === 'video');
     } catch (err) {
-      if (type === 'video') {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        } catch (audioErr) {
-          alert('Microphone access is required for CNCT.');
-          return;
-        }
-      } else {
-        alert('Microphone access is required for CNCT.');
-        return;
-      }
+      alert('Microphone access is required for CNCT.');
+      return;
     }
 
     localStream = stream;
@@ -706,7 +709,7 @@
       <!-- Video container -->
       <div style="width:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f1f5f9;border-radius:12px;border:1px solid #cbd5e1;overflow:hidden;position:relative;margin-bottom:16px;min-height:180px;">
         ${activeCallType === 'video' ? `
-          <video id="sds-remote-video" autoplay playsinline style="width:100%;height:100%;object-fit:cover;"></video>
+          <video id="sds-remote-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
           <div style="position:absolute;bottom:8px;right:8px;width:80px;height:100px;background:#f1f5f9;border-radius:8px;border:1px solid #94a3b8;overflow:hidden;">
             <video id="sds-local-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);"></video>
           </div>
@@ -733,8 +736,14 @@
       if (activeCallType === 'video') {
         const localVideo = document.getElementById('sds-local-video');
         const remoteVideo = document.getElementById('sds-remote-video');
-        if (localVideo && localStream) localVideo.srcObject = localStream;
-        if (remoteVideo && remoteStream) remoteVideo.srcObject = remoteStream;
+        if (localVideo && localStream) {
+          localVideo.srcObject = localStream;
+          localVideo.play().catch(() => {});
+        }
+        if (remoteVideo && remoteStream) {
+          remoteVideo.srcObject = remoteStream;
+          remoteVideo.play().catch(() => {});
+        }
       } else {
         // Voice call: play remote audio via a hidden <audio> element
         let audioEl = document.getElementById('sds-remote-audio');
