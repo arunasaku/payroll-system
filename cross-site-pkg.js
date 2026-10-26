@@ -419,8 +419,8 @@
   }
 
   function connectAdminPeer() {
-    if (MY_USERNAME === 'admin' && peers.cross && peers.cross.open) {
-      peers.admin = peers.cross;
+    if (MY_USERNAME === 'admin') {
+      if (peers.cross) peers.admin = peers.cross;
       return;
     }
     if (peers.admin && !peers.admin.destroyed && peers.admin.open) return;
@@ -517,15 +517,14 @@
       </div>
     `;
 
-    // Insert after the site indicator bar
+    // Open SVS window if closed
+    if (!pkgOpen) togglePkg(true);
+
     const container = document.getElementById('sds-container');
     const feed = document.getElementById('sds-feed');
     if (container && feed) {
       container.insertBefore(banner, feed);
     }
-
-    // Open the PKG if minimized
-    if (!pkgOpen) togglePkg(true);
 
     document.getElementById('sds-answer-btn').onclick = () => answerCall();
     document.getElementById('sds-decline-btn').onclick = () => declineCall();
@@ -707,7 +706,7 @@
       </div>
 
       <!-- Video container -->
-      <div style="width:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f1f5f9;border-radius:12px;border:1px solid #cbd5e1;overflow:hidden;position:relative;margin-bottom:16px;min-height:180px;">
+      <div style="width:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0f172a;border-radius:12px;border:1px solid #334155;overflow:hidden;position:relative;margin-bottom:16px;min-height:200px;">
         ${activeCallType === 'video' ? `
           <video id="sds-remote-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
           <div style="position:absolute;bottom:8px;right:8px;width:80px;height:100px;background:#f1f5f9;border-radius:8px;border:1px solid #94a3b8;overflow:hidden;">
