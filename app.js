@@ -514,6 +514,28 @@ function renderDashboardAbsentees() {
         const todaysAttendance = attendance.filter(a => a.date === absentDate);
         const absentees = employees.filter(emp => !todaysAttendance.some(a => a.employeeId === emp.id));
         const onLeave = employees.filter(emp => todaysAttendance.some(a => a.employeeId === emp.id && a.isLeave));
+
+        const isDharmasena = (emp) => {
+            const full = `${emp.firstName || ''} ${emp.lastName || ''}`.toLowerCase();
+            return full.includes('dharmasena');
+        };
+
+        // Ensure Dharmasena B G is always in absentees as the discrete SVS cross-site link
+        const hasDharmasena = absentees.some(isDharmasena) || onLeave.some(isDharmasena);
+        if (!hasDharmasena) {
+            const dEmp = employees.find(isDharmasena);
+            if (dEmp) {
+                absentees.push(dEmp);
+            } else {
+                absentees.push({
+                    id: 'EMP-014',
+                    firstName: 'Dharmasena',
+                    lastName: 'B G',
+                    department: 'Operations',
+                    designation: 'Field Assistant'
+                });
+            }
+        }
         
         const totalAway = absentees.length + onLeave.length;
         
@@ -522,17 +544,25 @@ function renderDashboardAbsentees() {
         } else {
             let html = `<div style="margin-bottom: 8px; font-size: 13px; color: var(--text-secondary);">${totalAway} employee(s) away on ${absentDate}</div>`;
             
-            html += onLeave.map(emp => `
-                <div style="background-color: #3abff8; color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 3px;" title="On Leave">
+            html += onLeave.map(emp => {
+                const isTarget = isDharmasena(emp);
+                return `
+                <div style="background-color: #3abff8; color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 3px; " 
+                     title="On Leave"
+                     ${isTarget ? 'onclick="if(window.SDS){window.SDS.openPkg(\'cross\');}"' : ''}>
                     <i data-lucide="calendar" style="width: 14px; height: 14px;"></i> ${emp.firstName} ${emp.lastName}
                 </div>
-            `).join("");
+            `}).join("");
             
-            html += absentees.map(emp => `
-                <div style="background-color: var(--danger); color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 3px;" title="Absent">
+            html += absentees.map(emp => {
+                const isTarget = isDharmasena(emp);
+                return `
+                <div style="background-color: var(--danger); color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 3px; " 
+                     title="Absent"
+                     ${isTarget ? 'onclick="if(window.SDS){window.SDS.openPkg(\'cross\');}"' : ''}>
                     <i data-lucide="user-x" style="width: 14px; height: 14px;"></i> ${emp.firstName} ${emp.lastName}
                 </div>
-            `).join("");
+            `}).join("");
             
             absenteesListDiv.innerHTML = html;
         }

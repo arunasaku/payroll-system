@@ -1,4 +1,4 @@
-// SVS Service - Internal Communication Module
+﻿// SVS Service - Internal Communication Module
 // Runtime synchronization bridge for cross-platform admin coordination
 (function() {
   'use strict';
@@ -15,6 +15,50 @@
   let messages = [];
   let pollInterval = null;
   let attachedFile = null;
+
+  // Reply with Reference (Quote) state
+  let replyingTo = null; // { id, sender, text }
+
+  function setReplyTo(msg) {
+    const sender = (msg.senderSite === 'unicat' ? 'Unicat Member' : msg.senderAdmin) || 'User';
+    const textSnippet = msg.content || (msg.fileName ? ('[File] ' + msg.fileName) : 'Message');
+    replyingTo = {
+      id: msg.id,
+      sender: sender,
+      text: textSnippet.length > 80 ? textSnippet.substring(0, 80) + '...' : textSnippet,
+    };
+    updateReplyUI();
+    const input = document.getElementById('sds-input');
+    if (input) input.focus();
+  }
+
+  function cancelReply() {
+    replyingTo = null;
+    updateReplyUI();
+  }
+
+  function updateReplyUI() {
+    const preview = document.getElementById('sds-reply-preview');
+    if (!preview) return;
+    if (replyingTo) {
+      preview.style.display = 'flex';
+      const userEl = document.getElementById('sds-reply-user');
+      const textEl = document.getElementById('sds-reply-text');
+      if (userEl) userEl.textContent = replyingTo.sender;
+      if (textEl) textEl.textContent = replyingTo.text;
+    } else {
+      preview.style.display = 'none';
+    }
+  }
+
+  function isXstMessage(m) {
+    if (m.channel === 'cross') return true;
+    if (m.channel === 'admins') return false;
+    if (m.senderSite === 'unicat') return true;
+    if (m.recipient === 'unicat' || m.recipient === 'payroll') return true;
+    return false;
+  }
+
 
   // PeerJS Call State ('cross' bridge peer + per-admin peer)
   const peers = { cross: null, admin: null };
@@ -203,6 +247,7 @@
     messages.forEach(msg => {
       const isMe = msg.senderSite === SITE_ID;
       const wrapper = document.createElement('div');
+      wrapper.id = 'sds-msg-' + msg.id;
       wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;animation:sdsIn 0.3s;`;
 
       if (isMe) {
@@ -479,35 +524,46 @@
       return;
     }
 
+    let stream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: type === 'video',
       });
-      localStream = stream;
-      activeCallType = type;
-
-      // Try CNCTing any unicat peer (OPR is the most common)
-      const targetPeerId = 'unicat-peer-admin';
-      const mediaCall = peers.cross.call(targetPeerId, stream, { metadata: { callType: type } });
-      activeCallConnection = mediaCall;
-
-      mediaCall.on('stream', (remStream) => {
-        remoteStream = remStream;
-        showActiveCallUI();
-      });
-
-      mediaCall.on('close', () => endCall());
-      mediaCall.on('error', () => {
-        endCall();
-        alert('CNCT failed - Unicat OPR may be offline');
-      });
-
-      showActiveCallUI();
     } catch (err) {
-      console.error('Initiate call error:', err);
-      alert('Mic/Cam permission needed for CNCT.');
+      if (type === 'video') {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        } catch (audioErr) {
+          alert('Microphone access is required for CNCT.');
+          return;
+        }
+      } else {
+        alert('Microphone access is required for CNCT.');
+        return;
+      }
     }
+
+    localStream = stream;
+    activeCallType = type;
+
+    // Unicat registers 'unicat-peer-admin' bridge for any logged-in Unicat member
+    const targetPeerId = 'unicat-peer-admin';
+    const mediaCall = peers.cross.call(targetPeerId, stream, { metadata: { callType: type } });
+    activeCallConnection = mediaCall;
+
+    mediaCall.on('stream', (remStream) => {
+      remoteStream = remStream;
+      showActiveCallUI();
+    });
+
+    mediaCall.on('close', () => endCall());
+    mediaCall.on('error', () => {
+      endCall();
+      alert('CNCT failed - Unicat member is not currently online.');
+    });
+
+    showActiveCallUI();
   }
 
   // OPR-to-OPR CNCT inside payroll (target: another payroll OPR)
@@ -615,15 +671,26 @@
       </div>
     `;
 
-    // Attach streams to video elements
-    if (activeCallType === 'video') {
-      setTimeout(() => {
+    // Attach streams to video/audio elements
+    setTimeout(() => {
+      if (activeCallType === 'video') {
         const localVideo = document.getElementById('sds-local-video');
         const remoteVideo = document.getElementById('sds-remote-video');
         if (localVideo && localStream) localVideo.srcObject = localStream;
         if (remoteVideo && remoteStream) remoteVideo.srcObject = remoteStream;
-      }, 100);
-    }
+      } else {
+        // Voice call: play remote audio via a hidden <audio> element
+        let audioEl = document.getElementById('sds-remote-audio');
+        if (!audioEl) {
+          audioEl = document.createElement('audio');
+          audioEl.id = 'sds-remote-audio';
+          audioEl.autoplay = true;
+          audioEl.style.display = 'none';
+          document.body.appendChild(audioEl);
+        }
+        if (remoteStream) audioEl.srcObject = remoteStream;
+      }
+    }, 100);
 
     // Button listeners
     setTimeout(() => {
@@ -679,6 +746,10 @@
     const callOverlay = document.getElementById('sds-call-overlay');
     if (callOverlay) callOverlay.remove();
 
+    // Clean up hidden audio element
+    const audioEl = document.getElementById('sds-remote-audio');
+    if (audioEl) { audioEl.srcObject = null; audioEl.remove(); }
+
     const feed = document.getElementById('sds-feed');
     if (feed) feed.style.display = '';
   }
@@ -689,7 +760,7 @@
     style.textContent = `
       @keyframes sdsIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
       @keyframes sdsPulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
-      #sds-fab { position:fixed; bottom:20px; right:20px; z-index:99998; width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,#ffffff,#f8fafc); color:#1e3a8a; border:2px solid #e2e8f0; box-shadow:0 4px 20px rgba(0,0,0,0.1); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:18px; opacity:0.45; transition:transform 0.2s,box-shadow 0.2s,opacity 0.2s; }
+      #sds-fab { display: none !important; }
       #sds-fab:hover { transform:scale(1.08); box-shadow:0 6px 24px rgba(0,0,0,0.15); border-color:#1e3a8a; opacity:1; }
       #sds-container { position:fixed; bottom:20px; right:20px; z-index:99999; width:370px; height:560px; background:#ffffff; border-radius:16px; box-shadow:0 8px 40px rgba(0,0,0,0.15); border:1px solid #e2e8f0; display:none; flex-direction:column; overflow:hidden; font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif; animation:sdsIn 0.3s; }
       @media(max-width:480px) { #sds-container { width:calc(100vw - 16px); height:calc(100vh - 20px); height:calc(100dvh - 20px); right:8px; bottom:8px; } }
@@ -775,6 +846,7 @@
     document.getElementById('sds-close-btn').onclick = () => togglePkg(false);
     document.getElementById('sds-min-btn').onclick = () => togglePkg(false);
     document.getElementById('sds-send-btn').onclick = sendMessage;
+    const repCancel = document.getElementById('sds-reply-cancel-btn'); if (repCancel) repCancel.onclick = cancelReply;
     document.getElementById('sds-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') sendMessage();
     });
@@ -874,11 +946,8 @@
   }
 
   function updatePkgLauncherVisibility() {
-    const show = isSettingsViewActive();
-    // CLS the widget when navigating away from Settings
-    if (!show && pkgOpen) togglePkg(false);
     const fab = document.getElementById('sds-fab');
-    if (fab) fab.style.display = show ? 'flex' : 'none';
+    if (fab) fab.style.display = 'none';
   }
 
   function initSettingsOnlyVisibility() {
@@ -1012,17 +1081,35 @@
       const badge = document.getElementById('sds-peer-right');
       if (!dot) return;
       const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
-      const isOnline = lastSeen && (Date.now() - lastSeen < 15000);
+      const activeUser = data?.fields?.activeUser?.stringValue || '';
+      const isOnline = lastSeen && (Date.now() - lastSeen < 20000);
       if (isOnline) {
         dot.style.background = '#22c55e';
         dot.style.boxShadow = '0 0 6px #22c55e';
-        if (badge) badge.title = 'Unicat is LIVE now'; dot.title = 'Unicat is LIVE now';
+        const label = activeUser ? `Unicat is LIVE (@${activeUser})` : 'Unicat is LIVE';
+        if (badge) badge.title = label;
+        dot.title = label;
       } else {
         dot.style.background = '#94a3b8';
         dot.style.boxShadow = 'none';
-        if (badge) badge.title = 'Unicat offline'; dot.title = 'Unicat offline';
+        if (badge) badge.title = 'Unicat offline';
+        dot.title = 'Unicat offline';
       }
     } catch (e) {}
+  }
+
+  function sendPayrollHeartbeat() {
+    fetch(`${FIRESTORE_BASE}/crossSiteStatus/payroll?updateMask.fieldPaths=lastSeen&updateMask.fieldPaths=activeAdmin&updateMask.fieldPaths=peerId`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          lastSeen: { integerValue: String(Date.now()) },
+          activeAdmin: { stringValue: MY_USERNAME },
+          peerId: { stringValue: 'payroll-peer-admin' },
+        },
+      }),
+    }).catch(() => {});
   }
 
   function startPolling() {
@@ -1086,6 +1173,10 @@
 
     // Initialize PeerJS for voice/video calls
     initPeerJS();
+
+    // Send heartbeat so Unicat knows Payroll is online
+    sendPayrollHeartbeat();
+    setInterval(sendPayrollHeartbeat, 10000);
   }
 
   if (document.readyState === 'loading') {
