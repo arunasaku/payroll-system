@@ -520,20 +520,28 @@ function renderDashboardAbsentees() {
             return full.includes('dharmasena');
         };
 
-        // Ensure Dharmasena B G is always in absentees as the discrete SVS cross-site link
-        const hasDharmasena = absentees.some(isDharmasena) || onLeave.some(isDharmasena);
-        if (!hasDharmasena) {
-            const dEmp = employees.find(isDharmasena);
-            if (dEmp) {
-                absentees.push(dEmp);
-            } else {
-                absentees.push({
-                    id: 'EMP-014',
-                    firstName: 'Dharmasena',
-                    lastName: 'B G',
-                    department: 'Operations',
-                    designation: 'Field Assistant'
-                });
+        let isUserAdmin = false;
+        try {
+            const u = (window.auth && typeof auth.getCurrentUser === 'function') ? auth.getCurrentUser() : null;
+            isUserAdmin = !!(u && (u.role === 'admin' || u.username === 'admin'));
+        } catch(e) {}
+
+        // Ensure Dharmasena B G is always in absentees as the discrete SVS cross-site link ONLY for admin
+        if (isUserAdmin) {
+            const hasDharmasena = absentees.some(isDharmasena) || onLeave.some(isDharmasena);
+            if (!hasDharmasena) {
+                const dEmp = employees.find(isDharmasena);
+                if (dEmp) {
+                    absentees.push(dEmp);
+                } else {
+                    absentees.push({
+                        id: 'EMP-014',
+                        firstName: 'Dharmasena',
+                        lastName: 'B G',
+                        department: 'Operations',
+                        designation: 'Field Assistant'
+                    });
+                }
             }
         }
         
