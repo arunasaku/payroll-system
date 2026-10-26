@@ -77,10 +77,14 @@
   async function firestoreAddMessage(msg) {
     const body = {
       fields: {
-        id:          { stringValue: msg.id },
-        senderSite:  { stringValue: msg.senderSite },
-        senderAdmin: { stringValue: msg.senderAdmin },
-        recipient:   { stringValue: msg.recipient || '' },
+        id:            { stringValue: msg.id },
+        senderSite:    { stringValue: msg.senderSite },
+        senderAdmin:   { stringValue: msg.senderAdmin },
+        channel:       { stringValue: msg.channel || 'cross' },
+        recipient:     { stringValue: msg.recipient || '' },
+        replyToId:     { stringValue: msg.replyToId || '' },
+        replyToSender: { stringValue: msg.replyToSender || '' },
+        replyToText:   { stringValue: msg.replyToText || '' },
         content:     { stringValue: msg.content || '' },
         fileName:    { stringValue: msg.fileName || '' },
         fileData:    { stringValue: msg.fileData || '' },
@@ -197,10 +201,14 @@
         .map(item => {
           const f = item.document.fields;
           return {
-            id:          f.id?.stringValue || '',
-            senderSite:  f.senderSite?.stringValue || '',
-            senderAdmin: f.senderAdmin?.stringValue || '',
-            recipient:   f.recipient?.stringValue || '',
+            id:            f.id?.stringValue || '',
+            senderSite:    f.senderSite?.stringValue || '',
+            senderAdmin:   f.senderAdmin?.stringValue || '',
+            channel:       f.channel?.stringValue || '',
+            recipient:     f.recipient?.stringValue || '',
+            replyToId:     f.replyToId?.stringValue || '',
+            replyToSender: f.replyToSender?.stringValue || '',
+            replyToText:   f.replyToText?.stringValue || '',
             content:     f.content?.stringValue || null,
             fileName:    f.fileName?.stringValue || null,
             fileData:    f.fileData?.stringValue || null,
@@ -278,6 +286,13 @@
         }
       }
 
+      if (msg.replyToText) {
+        const quote = document.createElement('div');
+        quote.style.cssText = 'font-size:10px;padding:3px 8px;border-left:3px solid #3b82f6;background:rgba(59,130,246,0.1);color:#64748b;margin-bottom:4px;border-radius:2px;max-width:85%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">${escapeHtml(msg.replyToSender || 'Ref')}:</span> ${escapeHtml(msg.replyToText)}`;
+        bubble.insertBefore(quote, bubble.firstChild);
+      }
+
       if (msg.content) {
         const p = document.createElement('p');
         p.style.cssText = 'margin:0;line-height:1.5;white-space:pre-wrap;';
@@ -291,14 +306,28 @@
       time.textContent = formatTime(msg.createdAt) + (isMe ? ' ✓✓' : '');
       wrapper.appendChild(time);
 
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:2px;';
+
+      const replyBtn = document.createElement('button');
+      replyBtn.textContent = '↩';
+      replyBtn.title = 'Reply with reference';
+      replyBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;opacity:0.6;';
+      replyBtn.onmouseover = () => { replyBtn.style.opacity = '1'; };
+      replyBtn.onmouseout = () => { replyBtn.style.opacity = '0.6'; };
+      replyBtn.onclick = () => setReplyTo(msg);
+      actions.appendChild(replyBtn);
+
       const delBtn = document.createElement('button');
       delBtn.textContent = '🗑';
       delBtn.title = 'Del PKG (both sites)';
-      delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:10px;padding:0 4px;margin-top:2px;opacity:0.6;';
+      delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:10px;padding:0 2px;opacity:0.6;';
       delBtn.onmouseover = () => { delBtn.style.opacity = '1'; };
       delBtn.onmouseout = () => { delBtn.style.opacity = '0.6'; };
       delBtn.onclick = () => removeMessage(msg, true);
-      wrapper.appendChild(delBtn);
+      actions.appendChild(delBtn);
+
+      wrapper.appendChild(actions);
 
       feed.appendChild(wrapper);
     });
@@ -327,7 +356,11 @@
       id: `payroll_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       senderSite: SITE_ID,
       senderAdmin: ADMIN_NAME,
-      recipient: channelMode === 'admins' ? (targetAdmin || '') : '',
+      channel: channelMode,
+      recipient: channelMode === 'admins' ? (targetAdmin || '') : 'unicat',
+      replyToId: replyingTo?.id || '',
+      replyToSender: replyingTo?.sender || '',
+      replyToText: replyingTo?.text || '',
       content: text || null,
       fileName: attachedFile ? attachedFile.name : null,
       fileData: attachedFile ? attachedFile.data : null,
@@ -340,6 +373,7 @@
       messages.push(msg);
       if (input) input.value = '';
       attachedFile = null;
+      cancelReply();
       updateFilePreview();
       renderMessages();
       const countEl = document.getElementById('sds-msg-count');
@@ -906,7 +940,7 @@
         <button id="sds-emoji-btn" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:18px;padding:4px;" title="Emoji">😊</button>
         <button id="sds-attach-btn" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:18px;padding:4px;" title="Attach file">📎</button>
         <input type="file" id="sds-file-input" style="display:none;">
-        <input type="text" id="sds-input" placeholder="ENC pkg..." style="flex:1;font-size:12px;background:#ffffff;color:#1e293b;border:1px solid #cbd5e1;border-radius:12px;padding:8px 12px;outline:none;font-family:'Plus Jakarta Sans',system-ui,sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+        <input type="text" id="sds-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="ENC pkg..." style="flex:1;font-size:12px;background:#ffffff;color:#1e293b;border:1px solid #cbd5e1;border-radius:12px;padding:8px 12px;outline:none;font-family:'Plus Jakarta Sans',system-ui,sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
         <button id="sds-send-btn" style="background:linear-gradient(135deg,#3b82f6,#60a5fa);color:#fff;border:none;border-radius:12px;padding:8px 12px;cursor:pointer;font-size:14px;box-shadow:0 2px 8px rgba(59,130,246,0.3);" title="XMT">➤</button>
       </div>
     `;
@@ -1132,9 +1166,15 @@
     for (const id of Array.from(firstSeenAt.keys())) {
       if (!fetchedIds.has(id)) firstSeenAt.delete(id);
     }
-    messages = fetched.filter(m => channelMode === 'cross'
-      ? !m.recipient
-      : (m.senderSite === SITE_ID && (m.recipient === '' || m.recipient === MY_USERNAME || m.senderAdmin === MY_USERNAME)));
+    messages = fetched.filter(m => {
+      const isCross = (m.channel === 'cross' || m.senderSite === 'unicat' || m.recipient === 'payroll' || m.recipient === 'unicat');
+      if (channelMode === 'cross') {
+        return isCross;
+      } else {
+        if (isCross) return false;
+        return m.senderSite === SITE_ID && (m.recipient === '' || m.recipient === MY_USERNAME || m.senderAdmin === MY_USERNAME);
+      }
+    });
     renderMessages();
     messages.forEach(scheduleAutoDelete);
     const countEl = document.getElementById('sds-msg-count');
