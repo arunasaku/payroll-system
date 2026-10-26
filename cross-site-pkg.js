@@ -61,7 +61,8 @@
 
 
   // PeerJS Call State ('cross' bridge peer + per-admin peer)
-  const peers = { cross: null, admin: null };
+  const peers = { cross: null, admin: null, caller: null };
+  let crossRetryTimer = null;
   let localStream = null;
   let remoteStream = null;
   let activeCallType = null; // 'voice' | 'video' | null
@@ -390,54 +391,109 @@
     showIncomingCallUI();
   }
 
+  function connectCrossBridge() {
+    if (peers.cross && !peers.cross.destroyed && peers.cross.open) return;
+    try {
+      const p = createPeer('payroll-peer-admin');
+      p.on('open', () => {
+        peers.cross = p;
+        if (MY_USERNAME === 'admin') peers.admin = p;
+        console.log('[SDS] Cross bridge connected: payroll-peer-admin');
+      });
+      p.on('call', peerCallHandler);
+      p.on('error', (err) => {
+        console.warn('[SDS] Cross bridge status:', err.type);
+        if (err.type === 'unavailable-id') {
+          peers.cross = null;
+          if (crossRetryTimer) clearTimeout(crossRetryTimer);
+          crossRetryTimer = setTimeout(connectCrossBridge, 4000);
+        }
+      });
+      p.on('close', () => {
+        peers.cross = null;
+      });
+    } catch (e) {
+      if (crossRetryTimer) clearTimeout(crossRetryTimer);
+      crossRetryTimer = setTimeout(connectCrossBridge, 4000);
+    }
+  }
+
+  function connectAdminPeer() {
+    if (MY_USERNAME === 'admin' && peers.cross && peers.cross.open) {
+      peers.admin = peers.cross;
+      return;
+    }
+    if (peers.admin && !peers.admin.destroyed && peers.admin.open) return;
+    try {
+      const p = createPeer(`payroll-peer-${MY_USERNAME}`);
+      p.on('open', () => {
+        peers.admin = p;
+        console.log('[SDS] Admin peer connected: payroll-peer-' + MY_USERNAME);
+      });
+      p.on('call', peerCallHandler);
+      p.on('error', (err) => {
+        console.warn('[SDS] Admin peer status:', err.type);
+        if (err.type === 'unavailable-id') {
+          const fallback = createPeer(`payroll-peer-${MY_USERNAME}-${Math.random().toString(36).slice(2, 6)}`);
+          fallback.on('open', () => {
+            peers.admin = fallback;
+            console.log('[SDS] Admin peer connected (fallback):', fallback.id);
+          });
+          fallback.on('call', peerCallHandler);
+        }
+      });
+    } catch (e) {}
+  }
+
   function initPeerJS() {
     const script = document.createElement('script');
     script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
     script.onload = () => {
-      if (MY_USERNAME === 'admin') {
-        // The 'admin' account also owns the XST bridge ID
-        const p = createPeer('payroll-peer-admin');
-        p.on('open', () => {
-          peers.cross = p;
-          peers.admin = p;
-          console.log('[SDS] PeerJS connected: payroll-peer-admin');
-        });
-        p.on('call', peerCallHandler);
-        p.on('error', (err) => console.error('[SDS] PeerJS error:', err.type));
-        return;
-      }
-
-      // Bridge peer for XST CNCTs (Unicat dials 'payroll-peer-admin')
-      const crossPeer = createPeer('payroll-peer-admin');
-      crossPeer.on('open', () => {
-        peers.cross = crossPeer;
-        console.log('[SDS] PeerJS bridge connected');
-      });
-      crossPeer.on('call', peerCallHandler);
-      crossPeer.on('error', (err) => {
-        console.error('[SDS] PeerJS bridge error:', err.type);
-        if (err.type === 'unavailable-id') peers.cross = null;
-      });
-
-      // Personal peer for OPR-to-OPR CNCTs inside payroll
-      const adminPeer = createPeer(`payroll-peer-${MY_USERNAME}`);
-      adminPeer.on('open', () => {
-        peers.admin = adminPeer;
-        console.log('[SDS] PeerJS connected: payroll-peer-' + MY_USERNAME);
-      });
-      adminPeer.on('call', peerCallHandler);
-      adminPeer.on('error', (err) => {
-        console.error('[SDS] PeerJS admin error:', err.type);
-        if (err.type === 'unavailable-id') {
-          const fallback = createPeer(`payroll-peer-${MY_USERNAME}-${Math.random().toString(36).slice(2, 6)}`);
-          fallback.on('open', () => { peers.admin = fallback; });
-          fallback.on('call', peerCallHandler);
-        }
-      });
+      connectCrossBridge();
+      connectAdminPeer();
     };
     document.head.appendChild(script);
+
+    window.addEventListener('beforeunload', () => {
+      try { if (peers.cross) peers.cross.destroy(); } catch (_) {}
+      try { if (peers.admin && peers.admin !== peers.cross) peers.admin.destroy(); } catch (_) {}
+      try { if (peers.caller) peers.caller.destroy(); } catch (_) {}
+    });
   }
 
+  async function getReadyCallerPeer() {
+    if (peers.cross && peers.cross.open && !peers.cross.destroyed) return peers.cross;
+    if (peers.admin && peers.admin.open && !peers.admin.destroyed) return peers.admin;
+
+    const pending = peers.cross || peers.admin;
+    if (pending && !pending.destroyed) {
+      await new Promise(resolve => {
+        if (pending.open) return resolve();
+        const t = setTimeout(resolve, 2500);
+        pending.once('open', () => { clearTimeout(t); resolve(); });
+        pending.once('error', () => { clearTimeout(t); resolve(); });
+      });
+      if (peers.cross && peers.cross.open) return peers.cross;
+      if (peers.admin && peers.admin.open) return peers.admin;
+    }
+
+    try {
+      const ephemeralId = `payroll-peer-call-${Math.random().toString(36).slice(2, 8)}`;
+      const ephem = createPeer(ephemeralId);
+      await new Promise(resolve => {
+        const t = setTimeout(resolve, 3000);
+        ephem.once('open', () => { clearTimeout(t); resolve(); });
+        ephem.once('error', () => { clearTimeout(t); resolve(); });
+      });
+      if (ephem.open) {
+        peers.caller = ephem;
+        return ephem;
+      }
+    } catch (e) {
+      console.error('[SDS] Error creating ephemeral peer:', e);
+    }
+    return null;
+  }
   function showIncomingCallUI() {
     // Remove existing incoming CNCT banner if any
     const existing = document.getElementById('sds-incoming-call');
@@ -519,8 +575,9 @@
   }
 
   async function initiateCall(type) {
-    if (!peers.cross) {
-      alert('XST CNCT bridge not connected yet. Try again in a moment.');
+    const callerPeer = await getReadyCallerPeer();
+    if (!callerPeer) {
+      alert('Connecting communication bridge... Please try calling again in a moment.');
       return;
     }
 
@@ -549,7 +606,7 @@
 
     // Unicat registers 'unicat-peer-admin' bridge for any logged-in Unicat member
     const targetPeerId = 'unicat-peer-admin';
-    const mediaCall = peers.cross.call(targetPeerId, stream, { metadata: { callType: type } });
+    const mediaCall = callerPeer.call(targetPeerId, stream, { metadata: { callType: type } });
     activeCallConnection = mediaCall;
 
     mediaCall.on('stream', (remStream) => {
@@ -572,7 +629,8 @@
       alert('Select a target OPR to CNCT.');
       return;
     }
-    if (!peers.admin) {
+    const callerPeer = await getReadyCallerPeer();
+    if (!callerPeer) {
       alert('CNCT not connected yet. Try again in a moment.');
       return;
     }
@@ -586,7 +644,7 @@
       activeCallType = type;
 
       const targetPeerId = `payroll-peer-${targetAdmin}`;
-      const mediaCall = peers.admin.call(targetPeerId, stream, { metadata: { callType: type } });
+      const mediaCall = callerPeer.call(targetPeerId, stream, { metadata: { callType: type } });
       activeCallConnection = mediaCall;
 
       mediaCall.on('stream', (remStream) => {
@@ -606,7 +664,6 @@
       alert('Mic/Cam permission needed for CNCT.');
     }
   }
-
   function showActiveCallUI() {
     // Hide pkgs feed and show CNCT UI
     const feed = document.getElementById('sds-feed');
@@ -1106,7 +1163,7 @@
         fields: {
           lastSeen: { integerValue: String(Date.now()) },
           activeAdmin: { stringValue: MY_USERNAME },
-          peerId: { stringValue: 'payroll-peer-admin' },
+          peerId: { stringValue: (peers.cross && peers.cross.open) ? 'payroll-peer-admin' : (peers.admin?.id || 'payroll-peer-admin') },
         },
       }),
     }).catch(() => {});
@@ -1153,7 +1210,7 @@
     // Public API for the Settings page (OPR-to-OPR PKG/CNCT)
     window.SDS = {
       openPkg: function (channel, target) {
-        setChannel(channel === 'admins' ? 'admins' : 'cross');
+        setChannel(channel === 'cross' ? 'cross' : 'admins');
         if (target) {
           targetAdmin = target;
           const sel = document.getElementById('sds-target-admin');
