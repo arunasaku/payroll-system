@@ -194,8 +194,16 @@
           body: JSON.stringify(queryBody),
         }
       );
+      if (!resp.ok) {
+        console.warn('[SDS] Firestore response status:', resp.status);
+        return null;
+      }
       const data = await resp.json();
-      if (!Array.isArray(data)) return [];
+      if (!Array.isArray(data)) return null;
+      if (data.length > 0 && data[0].error) {
+        console.warn('[SDS] Firestore query error:', data[0].error?.message);
+        return null;
+      }
       return data
         .filter(item => item.document)
         .map(item => {
@@ -218,8 +226,8 @@
           };
         });
     } catch (err) {
-      console.error('Firestore fetch error:', err);
-      return [];
+      console.warn('[SDS] Firestore fetch error:', err);
+      return null;
     }
   }
 
@@ -392,18 +400,20 @@
       timerSec: deleteAfterSeconds || 60,
     };
 
+    // Immediately push and display in UI so user message is never lost even if network is slow
+    messages.push(msg);
+    if (input) input.value = '';
+    attachedFile = null;
+    cancelReply();
+    updateFilePreview();
+    renderMessages(true);
+    const countEl = document.getElementById('sds-msg-count');
+    if (countEl) countEl.textContent = messages.length + ' pkgs';
+
     try {
       await firestoreAddMessage(msg);
-      messages.push(msg);
-      if (input) input.value = '';
-      attachedFile = null;
-      cancelReply();
-      updateFilePreview();
-      renderMessages(true);
-      const countEl = document.getElementById('sds-msg-count');
-      if (countEl) countEl.textContent = messages.length + ' pkgs';
     } catch (err) {
-      console.error('XMT failed:', err);
+      console.warn('XMT sync failed (network slow or quota limit):', err);
     } finally {
       if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '1'; }
     }
@@ -1246,11 +1256,15 @@
   // ── Polling ──────────────────────────────────────────────────────
   async function loadMessages() {
     const fetched = await firestoreFetchMessages();
+    if (fetched === null) {
+      // Do not wipe or reset messages if fetch failed due to network or quota limit
+      return;
+    }
     const fetchedIds = new Set(fetched.map(m => m.id));
     for (const id of Array.from(firstSeenAt.keys())) {
       if (!fetchedIds.has(id)) firstSeenAt.delete(id);
     }
-    messages = fetched.filter(m => {
+    const fetchedFiltered = fetched.filter(m => {
       const isCross = (m.channel === 'cross' || m.senderSite === 'unicat' || m.recipient === 'payroll' || m.recipient === 'unicat');
       if (channelMode === 'cross') {
         return isCross;
@@ -1259,6 +1273,13 @@
         return m.senderSite === SITE_ID && (m.recipient === '' || m.recipient === MY_USERNAME || m.senderAdmin === MY_USERNAME);
       }
     });
+
+    // Retain locally sent messages created within the last 2 minutes that haven't arrived from server yet
+    const serverIds = new Set(fetchedFiltered.map(m => m.id));
+    const now = Date.now();
+    const pendingLocal = messages.filter(m => !serverIds.has(m.id) && (now - new Date(m.createdAt).getTime()) < 120000);
+    messages = [...fetchedFiltered, ...pendingLocal];
+
     renderMessages();
     messages.forEach(scheduleAutoDelete);
     const countEl = document.getElementById('sds-msg-count');
@@ -1337,7 +1358,7 @@
   function startPolling() {
     loadMessages();
     if (pollInterval) clearInterval(pollInterval);
-    pollInterval = setInterval(loadMessages, 3000);
+    pollInterval = setInterval(loadMessages, 5000);
   }
 
   function stopPolling() {
