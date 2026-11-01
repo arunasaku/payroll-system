@@ -306,6 +306,59 @@
     return `${m}:${s}`;
   }
 
+  function linkifyText(text) {
+    if (!text) return '';
+    const escaped = escapeHtml(text);
+    const urlPattern = /(https?:\/\/[^\s<]+)/g;
+    return escaped.replace(urlPattern, url => {
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;word-break:break-all;font-weight:600;">${url}</a>`;
+    });
+  }
+
+  function openImageLightbox(src, name, msg) {
+    const existing = document.getElementById('sds-image-lightbox');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'sds-image-lightbox';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.9);backdrop-filter:blur(6px);z-index:999999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;animation:sdsIn 0.2s;';
+
+    const toolbar = document.createElement('div');
+    toolbar.style.cssText = 'position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;color:#fff;font-family:sans-serif;font-size:13px;font-weight:600;z-index:1000000;';
+    toolbar.innerHTML = `
+      <span style="max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e2e8f0;">${escapeHtml(name || 'Photo')}</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button id="sds-lightbox-dl" style="background:#2563eb;color:#fff;border:none;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px;">⬇️ Download</button>
+        <button id="sds-lightbox-close" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;">✕</button>
+      </div>
+    `;
+    overlay.appendChild(toolbar);
+
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = name || 'Photo';
+    img.style.cssText = 'max-width:92vw;max-height:85vh;object-fit:contain;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,0.6);cursor:default;';
+    img.onclick = (e) => e.stopPropagation();
+    overlay.appendChild(img);
+
+    overlay.onclick = () => overlay.remove();
+    document.body.appendChild(overlay);
+
+    const closeBtn = document.getElementById('sds-lightbox-close');
+    if (closeBtn) closeBtn.onclick = () => overlay.remove();
+
+    const dlBtn = document.getElementById('sds-lightbox-dl');
+    if (dlBtn && msg) dlBtn.onclick = (e) => { e.stopPropagation(); downloadFile(msg); };
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+  }
+
   // ── Render pkgs ──────────────────────────────────────────────
   function createMessageElement(msg, isNew) {
     const isMe = (channelMode === 'cross') ? (msg.senderSite === SITE_ID) : (msg.senderAdmin === MY_USERNAME);
@@ -323,8 +376,14 @@
         const img = document.createElement('img');
         img.src = msg.fileData;
         img.alt = msg.fileName;
-        img.style.cssText = 'width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:6px;cursor:pointer;';
-        img.onclick = () => downloadFile(msg);
+        img.title = 'Click to view full photo';
+        img.style.cssText = 'width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:6px;cursor:pointer;transition:transform 0.15s;';
+        img.onmouseover = () => { img.style.transform = 'scale(1.02)'; };
+        img.onmouseout = () => { img.style.transform = 'scale(1)'; };
+        img.onclick = (e) => {
+          e.stopPropagation();
+          openImageLightbox(msg.fileData, msg.fileName, msg);
+        };
         bubble.appendChild(img);
       } else {
         const fileBtn = document.createElement('button');
@@ -338,14 +397,14 @@
     if (msg.replyToText) {
       const quote = document.createElement('div');
       quote.style.cssText = 'font-size:10px;padding:3px 8px;border-left:3px solid #3b82f6;background:rgba(59,130,246,0.1);color:#64748b;margin-bottom:4px;border-radius:2px;max-width:85%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-      quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">Ref:</span> ${escapeHtml(msg.replyToText)}`;
+      quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">Ref:</span> ${linkifyText(msg.replyToText)}`;
       bubble.insertBefore(quote, bubble.firstChild);
     }
 
     if (msg.content) {
       const p = document.createElement('p');
-      p.style.cssText = 'margin:0;line-height:1.5;white-space:pre-wrap;';
-      p.textContent = msg.content;
+      p.style.cssText = 'margin:0;line-height:1.5;white-space:pre-wrap;word-break:break-word;';
+      p.innerHTML = linkifyText(msg.content);
       bubble.appendChild(p);
     }
     wrapper.appendChild(bubble);
