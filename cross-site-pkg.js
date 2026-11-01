@@ -679,7 +679,7 @@
     mediaCall.on('close', () => endCall());
     mediaCall.on('error', () => {
       endCall();
-      alert('CNCT failed - Unicat member is not currently online.');
+      alert('CNCT failed - Peer is not currently online.');
     });
 
     showActiveCallUI();
@@ -761,7 +761,7 @@
         <span style="font-size:9px;background:rgba(34,197,94,0.2);color:#15803d;font-weight:700;padding:2px 10px;border-radius:4px;border:1px solid rgba(34,197,94,0.4);text-transform:uppercase;letter-spacing:2px;">
           ${activeCallType === 'voice' ? 'CNCT (AUD) Active' : 'CNCT (VID) Active'}
         </span>
-        <p style="font-size:11px;color:#64748b;margin-top:6px;">Linked: <strong style="color:#d97706;font-family:monospace;">${escapeHtml(channelMode === 'admins' ? (targetAdmin || 'Admin') : 'Unicat Admin')}</strong></p>
+        <p style="font-size:11px;color:#64748b;margin-top:6px;">Linked: <strong style="color:#d97706;font-family:monospace;">${escapeHtml(channelMode === 'admins' ? (targetAdmin || 'Admin') : 'Remote Peer')}</strong></p>
         <p id="sds-call-timer" style="font-size:24px;font-weight:700;color:#d97706;font-family:monospace;margin-top:4px;">00:00</p>
       </div>
 
@@ -929,9 +929,9 @@
 
       <!-- Site indicator + channel tabs -->
       <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;">
-        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:5px;cursor:default;" title="Unicat status">
+        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:5px;cursor:default;">
           <span id="sds-unicat-status-dot" style="width:7px;height:7px;background:#94a3b8;border-radius:50%;display:inline-block;flex-shrink:0;transition:all 0.3s;"></span>
-          <span id="sds-unicat-status-text" style="font-weight:600;font-size:10px;color:#64748b;white-space:nowrap;">Unicat: checking...</span>
+          <span id="sds-unicat-status-text" style="font-weight:600;font-size:10px;color:#64748b;white-space:nowrap;">--</span>
         </div>
         <div style="display:flex;align-items:center;gap:4px;">
           <button id="sds-ch-admins" style="background:#1e3a8a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="PKG/CNCT OPRs">OPRs</button>
@@ -1179,7 +1179,7 @@
       if (adminsBtn) adminsBtn.style.cssText = activeStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
     } else {
       if (left) left.textContent = 'PAYROLL';
-      if (right) right.textContent = 'UNICAT';
+      if (right) right.textContent = 'XST';
       if (input) input.placeholder = 'Message...';
       if (crossBtn) crossBtn.style.cssText = activeStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
       if (adminsBtn) adminsBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
@@ -1239,38 +1239,32 @@
       const dot = document.getElementById('sds-unicat-status-dot');
       const text = document.getElementById('sds-unicat-status-text');
       const badge = document.getElementById('sds-unicat-status-badge');
-      const crossBtn = document.getElementById('sds-ch-cross');
       if (!dot) return;
 
       const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
-      const activeUser = data?.fields?.activeUser?.stringValue || '';
       const isOnline = lastSeen && (Date.now() - lastSeen < 20000);
 
       if (isOnline) {
         dot.style.background = '#22c55e';
         dot.style.boxShadow = '0 0 6px #22c55e';
         if (text) {
-          text.textContent = 'Unicat: Online';
+          text.textContent = 'Active';
           text.style.color = '#15803d';
         }
-        const label = activeUser ? `Unicat is ONLINE (@${activeUser})` : 'Unicat is ONLINE';
-        if (badge) badge.title = label;
-        if (crossBtn) crossBtn.title = `XST (${label})`;
+        if (badge) badge.title = 'Active now';
       } else {
         dot.style.background = '#94a3b8';
         dot.style.boxShadow = 'none';
         const ago = formatRelativeTime(lastSeen);
         if (text) {
-          text.textContent = `Unicat: ${ago}`;
+          text.textContent = ago;
           text.style.color = '#64748b';
         }
         let fullTime = '';
         try {
-          if (lastSeen) fullTime = ` at ${new Date(lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+          if (lastSeen) fullTime = ` (${new Date(lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
         } catch (e) {}
-        const label = lastSeen ? `Unicat last seen ${ago}${fullTime}` : 'Unicat is offline';
-        if (badge) badge.title = label;
-        if (crossBtn) crossBtn.title = `XST (${label})`;
+        if (badge) badge.title = lastSeen ? `Last active ${ago}${fullTime}` : 'Offline';
       }
     } catch (e) {}
   }
