@@ -322,9 +322,7 @@
     if (!feed) return;
 
     if (messages.length === 0) {
-      if (!feed.querySelector('.sds-empty-feed')) {
-        feed.innerHTML = '<div class="sds-empty-feed" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;"><div style="font-size:28px;margin-bottom:8px;">🔒</div><b>Secure Channel Ready</b><span style="font-size:10px;margin-top:4px;color:#64748b;">XST sync active — XMT first PKG</span></div>';
-      }
+      feed.innerHTML = '';
       return;
     }
 
