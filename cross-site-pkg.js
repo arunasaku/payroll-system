@@ -1,4 +1,4 @@
-﻿// SVS Service - Internal Communication Module
+// SVS Service - Internal Communication Module
 // Runtime synchronization bridge for cross-platform admin coordination
 (function() {
   'use strict';
@@ -243,96 +243,135 @@
   }
 
   // ── Render pkgs ──────────────────────────────────────────────
-  function renderMessages() {
+  function createMessageElement(msg, isNew) {
+    const isMe = (channelMode === 'cross') ? (msg.senderSite === SITE_ID) : (msg.senderAdmin === MY_USERNAME);
+    const wrapper = document.createElement('div');
+    wrapper.id = 'sds-msg-' + msg.id;
+    wrapper.className = 'sds-msg-wrapper';
+    wrapper.setAttribute('data-msg-id', msg.id);
+    wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;${isNew ? 'animation:sdsIn 0.2s;' : ''}`;
+
+    if (isMe) {
+      const badge = document.createElement('span');
+      badge.style.cssText = 'font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;background:rgba(59,130,246,0.15);color:#2563eb;border:1px solid rgba(59,130,246,0.3);';
+      badge.textContent = `${msg.senderSite.toUpperCase()} • ${msg.senderAdmin}`;
+      wrapper.appendChild(badge);
+    } else {
+      const badge = document.createElement('span');
+      badge.style.cssText = 'font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;background:rgba(100,116,139,0.15);color:#475569;border:1px solid rgba(100,116,139,0.3);';
+      const sender = msg.senderSite === 'unicat' ? `UNICAT • ${msg.senderAdmin || 'Member'}` : (msg.senderAdmin || 'Admin');
+      badge.textContent = sender;
+      wrapper.appendChild(badge);
+    }
+
+    const bubble = document.createElement('div');
+    bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#dbeafe;color:#1e293b;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(59,130,246,0.2);' : 'background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);'}`;
+
+    if (msg.fileName && msg.fileData) {
+      if (isImageFile(msg.fileName)) {
+        const img = document.createElement('img');
+        img.src = msg.fileData;
+        img.alt = msg.fileName;
+        img.style.cssText = 'width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:6px;cursor:pointer;';
+        img.onclick = () => downloadFile(msg);
+        bubble.appendChild(img);
+      } else {
+        const fileBtn = document.createElement('button');
+        fileBtn.style.cssText = `display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:10px;font-weight:700;border:none;cursor:pointer;margin-bottom:6px;width:100%;${isMe ? 'background:rgba(255,255,255,0.1);color:#93c5fd;' : 'background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.2);'}`;
+        fileBtn.innerHTML = `📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:left;">${escapeHtml(msg.fileName)}</span> ⬇️`;
+        fileBtn.onclick = () => downloadFile(msg);
+        bubble.appendChild(fileBtn);
+      }
+    }
+
+    if (msg.replyToText) {
+      const quote = document.createElement('div');
+      quote.style.cssText = 'font-size:10px;padding:3px 8px;border-left:3px solid #3b82f6;background:rgba(59,130,246,0.1);color:#64748b;margin-bottom:4px;border-radius:2px;max-width:85%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">${escapeHtml(msg.replyToSender || 'Ref')}:</span> ${escapeHtml(msg.replyToText)}`;
+      bubble.insertBefore(quote, bubble.firstChild);
+    }
+
+    if (msg.content) {
+      const p = document.createElement('p');
+      p.style.cssText = 'margin:0;line-height:1.5;white-space:pre-wrap;';
+      p.textContent = msg.content;
+      bubble.appendChild(p);
+    }
+    wrapper.appendChild(bubble);
+
+    const time = document.createElement('span');
+    time.style.cssText = 'font-size:9px;color:#64748b;margin-top:2px;padding:0 4px;';
+    time.textContent = formatTime(msg.createdAt) + (isMe ? ' ✓✓' : '');
+    wrapper.appendChild(time);
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:2px;';
+
+    const replyBtn = document.createElement('button');
+    replyBtn.textContent = '↩';
+    replyBtn.title = 'Reply with reference';
+    replyBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;opacity:0.6;';
+    replyBtn.onmouseover = () => { replyBtn.style.opacity = '1'; };
+    replyBtn.onmouseout = () => { replyBtn.style.opacity = '0.6'; };
+    replyBtn.onclick = () => setReplyTo(msg);
+    actions.appendChild(replyBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '🗑';
+    delBtn.title = 'Del PKG (both sites)';
+    delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:10px;padding:0 2px;opacity:0.6;';
+    delBtn.onmouseover = () => { delBtn.style.opacity = '1'; };
+    delBtn.onmouseout = () => { delBtn.style.opacity = '0.6'; };
+    delBtn.onclick = () => removeMessage(msg, true);
+    actions.appendChild(delBtn);
+
+    wrapper.appendChild(actions);
+
+    return wrapper;
+  }
+
+  function renderMessages(forceScroll) {
     const feed = document.getElementById('sds-feed');
     if (!feed) return;
-    feed.innerHTML = '';
 
     if (messages.length === 0) {
-      feed.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;"><div style="font-size:28px;margin-bottom:8px;">🔒</div><b>Secure Channel Ready</b><span style="font-size:10px;margin-top:4px;color:#64748b;">XST sync active — XMT first PKG</span></div>';
+      if (!feed.querySelector('.sds-empty-feed')) {
+        feed.innerHTML = '<div class="sds-empty-feed" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;"><div style="font-size:28px;margin-bottom:8px;">🔒</div><b>Secure Channel Ready</b><span style="font-size:10px;margin-top:4px;color:#64748b;">XST sync active — XMT first PKG</span></div>';
+      }
       return;
     }
 
-    messages.forEach(msg => {
-      const isMe = msg.senderSite === SITE_ID;
-      const wrapper = document.createElement('div');
-      wrapper.id = 'sds-msg-' + msg.id;
-      wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;animation:sdsIn 0.3s;`;
+    const empty = feed.querySelector('.sds-empty-feed');
+    if (empty) empty.remove();
 
-      if (isMe) {
-        const badge = document.createElement('span');
-        badge.style.cssText = 'font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;background:rgba(59,130,246,0.15);color:#2563eb;border:1px solid rgba(59,130,246,0.3);';
-        badge.textContent = `${msg.senderSite.toUpperCase()} • ${msg.senderAdmin}${msg.recipient ? ' → ' + msg.recipient : ''}`;
-        wrapper.appendChild(badge);
+    const isFirstRender = feed.querySelectorAll('.sds-msg-wrapper').length === 0;
+    const isNearBottom = (feed.scrollHeight - feed.scrollTop - feed.clientHeight) < 100;
+
+    // Remove nodes that were deleted
+    const currentIds = new Set(messages.map(m => m.id));
+    const existingNodes = feed.querySelectorAll('.sds-msg-wrapper');
+    existingNodes.forEach(node => {
+      const id = node.getAttribute('data-msg-id');
+      if (!currentIds.has(id)) {
+        node.remove();
       }
-
-      const bubble = document.createElement('div');
-      bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#dbeafe;color:#1e293b;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(59,130,246,0.2);' : 'background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);'}`;
-
-      if (msg.fileName && msg.fileData) {
-        if (isImageFile(msg.fileName)) {
-          const img = document.createElement('img');
-          img.src = msg.fileData;
-          img.alt = msg.fileName;
-          img.style.cssText = 'width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:6px;cursor:pointer;';
-          img.onclick = () => downloadFile(msg);
-          bubble.appendChild(img);
-        } else {
-          const fileBtn = document.createElement('button');
-          fileBtn.style.cssText = `display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:10px;font-weight:700;border:none;cursor:pointer;margin-bottom:6px;width:100%;${isMe ? 'background:rgba(255,255,255,0.1);color:#93c5fd;' : 'background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.2);'}`;
-          fileBtn.innerHTML = `📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:left;">${escapeHtml(msg.fileName)}</span> ⬇️`;
-          fileBtn.onclick = () => downloadFile(msg);
-          bubble.appendChild(fileBtn);
-        }
-      }
-
-      if (msg.replyToText) {
-        const quote = document.createElement('div');
-        quote.style.cssText = 'font-size:10px;padding:3px 8px;border-left:3px solid #3b82f6;background:rgba(59,130,246,0.1);color:#64748b;margin-bottom:4px;border-radius:2px;max-width:85%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-        quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">${escapeHtml(msg.replyToSender || 'Ref')}:</span> ${escapeHtml(msg.replyToText)}`;
-        bubble.insertBefore(quote, bubble.firstChild);
-      }
-
-      if (msg.content) {
-        const p = document.createElement('p');
-        p.style.cssText = 'margin:0;line-height:1.5;white-space:pre-wrap;';
-        p.textContent = msg.content;
-        bubble.appendChild(p);
-      }
-      wrapper.appendChild(bubble);
-
-      const time = document.createElement('span');
-      time.style.cssText = 'font-size:9px;color:#64748b;margin-top:2px;padding:0 4px;';
-      time.textContent = formatTime(msg.createdAt) + (isMe ? ' ✓✓' : '');
-      wrapper.appendChild(time);
-
-      const actions = document.createElement('div');
-      actions.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:2px;';
-
-      const replyBtn = document.createElement('button');
-      replyBtn.textContent = '↩';
-      replyBtn.title = 'Reply with reference';
-      replyBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;opacity:0.6;';
-      replyBtn.onmouseover = () => { replyBtn.style.opacity = '1'; };
-      replyBtn.onmouseout = () => { replyBtn.style.opacity = '0.6'; };
-      replyBtn.onclick = () => setReplyTo(msg);
-      actions.appendChild(replyBtn);
-
-      const delBtn = document.createElement('button');
-      delBtn.textContent = '🗑';
-      delBtn.title = 'Del PKG (both sites)';
-      delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:10px;padding:0 2px;opacity:0.6;';
-      delBtn.onmouseover = () => { delBtn.style.opacity = '1'; };
-      delBtn.onmouseout = () => { delBtn.style.opacity = '0.6'; };
-      delBtn.onclick = () => removeMessage(msg, true);
-      actions.appendChild(delBtn);
-
-      wrapper.appendChild(actions);
-
-      feed.appendChild(wrapper);
     });
 
-    feed.scrollTop = feed.scrollHeight;
+    // Append only new messages without destroying existing ones, preventing blinking
+    let hasNew = false;
+    messages.forEach(msg => {
+      let existing = document.getElementById('sds-msg-' + msg.id);
+      if (existing) {
+        return;
+      }
+      hasNew = true;
+      const el = createMessageElement(msg, !isFirstRender);
+      feed.appendChild(el);
+    });
+
+    if (forceScroll || isFirstRender || (hasNew && isNearBottom)) {
+      feed.scrollTop = feed.scrollHeight;
+    }
   }
 
   function downloadFile(msg) {
@@ -375,7 +414,7 @@
       attachedFile = null;
       cancelReply();
       updateFilePreview();
-      renderMessages();
+      renderMessages(true);
       const countEl = document.getElementById('sds-msg-count');
       if (countEl) countEl.textContent = messages.length + ' pkgs';
     } catch (err) {
@@ -1155,6 +1194,9 @@
       if (adminsBtn) adminsBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
     }
     clearAutoDeleteTimers();
+    const feed = document.getElementById('sds-feed');
+    if (feed) feed.innerHTML = '';
+    messages = [];
     await refreshAdminSelect();
     loadMessages();
   }
