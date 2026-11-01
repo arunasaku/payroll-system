@@ -107,41 +107,11 @@
     }
   }
 
-  // ── Local Storage Messages Cache ─────────────────────────────────
-  function getStoredMessages() {
-    try {
-      return JSON.parse(localStorage.getItem('sds_messages_store') || '[]');
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function storeMessage(msg) {
-    try {
-      const all = getStoredMessages();
-      if (!all.some(m => m.id === msg.id)) {
-        all.push(msg);
-        localStorage.setItem('sds_messages_store', JSON.stringify(all.slice(-200)));
-      }
-    } catch (e) {}
-  }
-
-  function storeMessages(msgs) {
-    try {
-      const all = getStoredMessages();
-      const map = new Map(all.map(m => [m.id, m]));
-      msgs.forEach(m => { if (m && m.id) map.set(m.id, m); });
-      const merged = Array.from(map.values()).slice(-200);
-      localStorage.setItem('sds_messages_store', JSON.stringify(merged));
-    } catch (e) {}
-  }
-
-  function removeStoredMessage(id) {
-    try {
-      const all = getStoredMessages().filter(m => m.id !== id);
-      localStorage.setItem('sds_messages_store', JSON.stringify(all));
-    } catch (e) {}
-  }
+  // ── Strict Privacy: In-Memory Only (Zero Browser Storage Persistence) ──
+  try {
+    localStorage.removeItem('sds_messages_store');
+    localStorage.removeItem('sds_messages_cache');
+  } catch (e) {}
 
   function filterMessagesForChannel(all, mode) {
     return all.filter(m => {
@@ -191,7 +161,6 @@
     const timer = deleteTimers.get(msg.id);
     if (timer) { clearTimeout(timer); deleteTimers.delete(msg.id); }
     firstSeenAt.delete(msg.id);
-    removeStoredMessage(msg.id);
     messages = messages.filter((m) => m.id !== msg.id);
     renderMessages();
     const countEl = document.getElementById('sds-msg-count');
@@ -207,19 +176,43 @@
   }
 
   function scheduleAutoDelete(msg) {
-    // Do not auto-delete on sender side; only delete when receiver views it
     const isSender = (channelMode === 'cross') ? (msg.senderSite === SITE_ID) : (msg.senderAdmin === MY_USERNAME);
-    if (isSender) return;
+    const durationSec = msg.timerSec || deleteAfterSeconds || 60;
 
+    // Sender side auto-delete logic:
+    if (isSender) {
+      if (deleteTimers.has(msg.id)) return;
+      if (msg.readAt) {
+        // Seen by receiver: countdown from when it was seen!
+        const readTime = new Date(msg.readAt).getTime() || Date.now();
+        const elapsed = (Date.now() - readTime) / 1000;
+        const remaining = (durationSec - elapsed) * 1000;
+        const timer = setTimeout(() => removeMessage(msg, false), Math.max(remaining, 500));
+        deleteTimers.set(msg.id, timer);
+      } else {
+        // Not seen yet: safety timeout (10 mins) so old messages never get stuck forever
+        const sendTime = new Date(msg.createdAt).getTime() || Date.now();
+        const elapsed = (Date.now() - sendTime) / 1000;
+        const safetyMax = 10 * 60; // 10 minutes maximum if unread
+        if (elapsed >= safetyMax) {
+          removeMessage(msg, false);
+          return;
+        }
+        const remaining = (safetyMax - elapsed) * 1000;
+        const timer = setTimeout(() => removeMessage(msg, false), Math.max(remaining, 1000));
+        deleteTimers.set(msg.id, timer);
+      }
+      return;
+    }
+
+    // Receiver side: marks read and starts timer upon viewing
     if (!msg.readAt && channelMode === 'cross') {
       markMessageAsRead(msg.id);
     }
 
-    const durationSec = msg.timerSec || deleteAfterSeconds || 60;
     if (deleteTimers.has(msg.id)) return;
     const now = Date.now();
     let first = firstSeenAt.get(msg.id);
-    // Reset stale first-seen so messages don't vanish before being viewed
     if (!first || (now - first) >= durationSec * 1000) {
       first = now;
     }
@@ -538,8 +531,7 @@
       timerSec: deleteAfterSeconds || 60,
     };
 
-    // Store in localStorage immediately
-    storeMessage(msg);
+    // In-memory push only (zero disk/storage trace)
     messages.push(msg);
     if (input) input.value = '';
     attachedFile = null;
@@ -595,7 +587,6 @@
 
   function handleIncomingPeerMsg(msg) {
     if (!msg || !msg.id) return;
-    storeMessage(msg);
     const isForCurrentChannel = (channelMode === 'cross')
       ? (msg.channel === 'cross' || msg.senderSite === 'unicat' || msg.recipient === 'payroll' || msg.recipient === 'unicat')
       : (msg.senderSite === SITE_ID && (msg.recipient === '' || msg.recipient === MY_USERNAME || msg.senderAdmin === MY_USERNAME));
@@ -1439,12 +1430,9 @@
       if (adminsBtn) adminsBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
     }
     clearAutoDeleteTimers();
-    // Load from local storage cache immediately
-    const allStored = getStoredMessages();
-    messages = filterMessagesForChannel(allStored, mode);
-    renderMessages(true);
-    const countEl = document.getElementById('sds-msg-count');
-    if (countEl) countEl.textContent = messages.length + ' pkgs';
+    const feed = document.getElementById('sds-feed');
+    if (feed) feed.innerHTML = '';
+    messages = [];
     await refreshAdminSelect();
     loadMessages();
   }
@@ -1452,11 +1440,29 @@
   // ── Polling ──────────────────────────────────────────────────────
   async function loadMessages() {
     const fetched = await firestoreFetchMessages();
-    if (fetched && Array.isArray(fetched)) {
-      storeMessages(fetched);
+    if (!fetched) {
+      return;
     }
-    const allStored = getStoredMessages();
-    messages = filterMessagesForChannel(allStored, channelMode);
+    const fetchedIds = new Set(fetched.map(m => m.id));
+    for (const id of Array.from(firstSeenAt.keys())) {
+      if (!fetchedIds.has(id)) firstSeenAt.delete(id);
+    }
+    const filtered = fetched.filter(m => {
+      const isCross = (m.channel === 'cross' || m.senderSite === 'unicat' || m.recipient === 'payroll' || m.recipient === 'unicat');
+      if (channelMode === 'cross') {
+        return isCross;
+      } else {
+        if (isCross) return false;
+        return m.senderSite === SITE_ID && (m.recipient === '' || m.recipient === MY_USERNAME || m.senderAdmin === MY_USERNAME);
+      }
+    });
+
+    // Retain only pending in-memory messages sent in last 2 mins
+    const serverIds = new Set(filtered.map(m => m.id));
+    const now = Date.now();
+    const pendingLocal = messages.filter(m => !serverIds.has(m.id) && (now - new Date(m.createdAt).getTime()) < 120000);
+    messages = [...filtered, ...pendingLocal];
+
     renderMessages();
     messages.forEach(scheduleAutoDelete);
     const countEl = document.getElementById('sds-msg-count');
