@@ -928,11 +928,14 @@
       </div>
 
       <!-- Site indicator + channel tabs -->
-      <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:flex-end;">
+      <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;">
+        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:5px;cursor:default;" title="Unicat status">
+          <span id="sds-unicat-status-dot" style="width:7px;height:7px;background:#94a3b8;border-radius:50%;display:inline-block;flex-shrink:0;transition:all 0.3s;"></span>
+          <span id="sds-unicat-status-text" style="font-weight:600;font-size:10px;color:#64748b;white-space:nowrap;">Unicat: checking...</span>
+        </div>
         <div style="display:flex;align-items:center;gap:4px;">
           <button id="sds-ch-admins" style="background:#1e3a8a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="PKG/CNCT OPRs">OPRs</button>
           <button id="sds-ch-cross" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="XST pkg (XST)">XST</button>
-          <span id="sds-unicat-status-dot" style="width:6px;height:6px;background:#94a3b8;border-radius:50%;display:inline-block;margin-left:2px;" title="Unicat status"></span>
           <select id="sds-target-admin" style="display:none;background:#ffffff;color:#d97706;font-size:9px;font-weight:700;border:1px solid #cbd5e1;border-radius:4px;padding:2px 4px;cursor:pointer;max-width:110px;" title="Target OPR"></select>
         </div>
       </div>
@@ -1062,6 +1065,7 @@
       container.style.display = 'flex';
       fab.style.display = 'none';
       startPolling();
+      checkUnicatOnlineStatus();
     } else {
       container.style.display = 'none';
       fab.style.display = 'flex';
@@ -1212,27 +1216,61 @@
     checkUnicatOnlineStatus();
   }
 
+  function formatRelativeTime(ms) {
+    if (!ms || isNaN(ms) || ms <= 0) return 'Offline';
+    const diff = Date.now() - ms;
+    if (diff < 0) return 'Just now';
+    const sec = Math.floor(diff / 1000);
+    if (sec < 20) return 'Just now';
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hours = Math.floor(min / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
   async function checkUnicatOnlineStatus() {
     try {
       const resp = await fetch(`${FIRESTORE_BASE}/crossSiteStatus/unicat`);
       const data = await resp.json();
       const dot = document.getElementById('sds-unicat-status-dot');
-      const badge = document.getElementById('sds-peer-right');
+      const text = document.getElementById('sds-unicat-status-text');
+      const badge = document.getElementById('sds-unicat-status-badge');
+      const crossBtn = document.getElementById('sds-ch-cross');
       if (!dot) return;
+
       const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
       const activeUser = data?.fields?.activeUser?.stringValue || '';
       const isOnline = lastSeen && (Date.now() - lastSeen < 20000);
+
       if (isOnline) {
         dot.style.background = '#22c55e';
         dot.style.boxShadow = '0 0 6px #22c55e';
-        const label = activeUser ? `Unicat is LIVE (@${activeUser})` : 'Unicat is LIVE';
+        if (text) {
+          text.textContent = 'Unicat: Online';
+          text.style.color = '#15803d';
+        }
+        const label = activeUser ? `Unicat is ONLINE (@${activeUser})` : 'Unicat is ONLINE';
         if (badge) badge.title = label;
-        dot.title = label;
+        if (crossBtn) crossBtn.title = `XST (${label})`;
       } else {
         dot.style.background = '#94a3b8';
         dot.style.boxShadow = 'none';
-        if (badge) badge.title = 'Unicat offline';
-        dot.title = 'Unicat offline';
+        const ago = formatRelativeTime(lastSeen);
+        if (text) {
+          text.textContent = `Unicat: ${ago}`;
+          text.style.color = '#64748b';
+        }
+        let fullTime = '';
+        try {
+          if (lastSeen) fullTime = ` at ${new Date(lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        } catch (e) {}
+        const label = lastSeen ? `Unicat last seen ${ago}${fullTime}` : 'Unicat is offline';
+        if (badge) badge.title = label;
+        if (crossBtn) crossBtn.title = `XST (${label})`;
       }
     } catch (e) {}
   }
