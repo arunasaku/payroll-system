@@ -953,7 +953,8 @@
       #sds-fab:hover { transform:scale(1.08); box-shadow:0 6px 24px rgba(0,0,0,0.15); border-color:#1e3a8a; opacity:1; }
       #sds-container { position:fixed; bottom:20px; right:20px; z-index:99999; width:370px; height:560px; background:#ffffff; border-radius:16px; box-shadow:0 8px 40px rgba(0,0,0,0.15); border:1px solid #e2e8f0; display:none; flex-direction:column; overflow:hidden; font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif; animation:sdsIn 0.3s; }
       #sds-unicat-status-text { display:none; font-weight:600; font-size:10px; color:#64748b; white-space:nowrap; }
-      #sds-unicat-status-badge:hover #sds-unicat-status-text { display:inline-block; }
+      #sds-unicat-status-badge:hover #sds-unicat-status-text,
+      #sds-unicat-status-badge.show-text #sds-unicat-status-text { display:inline-block; }
       @media(max-width:480px) { #sds-container { width:calc(100vw - 16px); height:calc(100vh - 20px); height:calc(100dvh - 20px); right:8px; bottom:8px; } }
     `;
     document.head.appendChild(style);
@@ -990,7 +991,7 @@
 
       <!-- Site indicator + channel tabs -->
       <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;">
-        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 4px;border-radius:6px;">
+        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 8px;border-radius:6px;min-height:22px;background:rgba(241,245,249,0.7);" title="Status">
           <span id="sds-unicat-status-dot" style="width:7px;height:7px;background:#94a3b8;border-radius:50%;display:inline-block;flex-shrink:0;transition:all 0.3s;"></span>
           <span id="sds-unicat-status-text">--</span>
         </div>
@@ -1113,6 +1114,13 @@
       emojiPickerOpen = !emojiPickerOpen;
       if (emojiPicker) emojiPicker.style.display = emojiPickerOpen ? 'block' : 'none';
     };
+
+    const statusBadge = document.getElementById('sds-unicat-status-badge');
+    if (statusBadge) {
+      statusBadge.onclick = () => {
+        statusBadge.classList.toggle('show-text');
+      };
+    }
   }
 
   function togglePkg(forceState) {
@@ -1304,40 +1312,79 @@
     return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
   }
 
-  async function checkUnicatOnlineStatus() {
-    try {
-      const resp = await fetch(`${FIRESTORE_BASE}/crossSiteStatus/unicat`);
-      const data = await resp.json();
-      const dot = document.getElementById('sds-unicat-status-dot');
-      const text = document.getElementById('sds-unicat-status-text');
-      const badge = document.getElementById('sds-unicat-status-badge');
-      if (!dot) return;
+  let cachedUnicatLastSeen = 0;
+  try {
+    cachedUnicatLastSeen = parseInt(localStorage.getItem('sds_unicat_last_seen') || '0', 10) || 0;
+  } catch (e) {}
 
-      const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
-      const isOnline = lastSeen && (Date.now() - lastSeen < 20000);
+  function updateStatusUI(lastSeen) {
+    const dot = document.getElementById('sds-unicat-status-dot');
+    const text = document.getElementById('sds-unicat-status-text');
+    const badge = document.getElementById('sds-unicat-status-badge');
+    if (!dot) return;
 
-      if (isOnline) {
-        dot.style.background = '#22c55e';
-        dot.style.boxShadow = '0 0 6px #22c55e';
-        if (text) {
-          text.textContent = 'Active';
-          text.style.color = '#15803d';
-        }
-        if (badge) badge.title = 'Active now';
-      } else {
-        dot.style.background = '#94a3b8';
-        dot.style.boxShadow = 'none';
-        const ago = formatRelativeTime(lastSeen);
-        if (text) {
-          text.textContent = ago;
-          text.style.color = '#64748b';
-        }
-        let fullTime = '';
-        try {
-          if (lastSeen) fullTime = ` (${new Date(lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
-        } catch (e) {}
-        if (badge) badge.title = lastSeen ? `Last active ${ago}${fullTime}` : 'Offline';
+    if (lastSeen > 0) {
+      if (lastSeen > cachedUnicatLastSeen) {
+        cachedUnicatLastSeen = lastSeen;
+        try { localStorage.setItem('sds_unicat_last_seen', String(lastSeen)); } catch (e) {}
       }
+    }
+
+    const effectiveTime = cachedUnicatLastSeen;
+    const isOnline = effectiveTime && (Date.now() - effectiveTime < 25000);
+
+    if (isOnline) {
+      dot.style.background = '#22c55e';
+      dot.style.boxShadow = '0 0 6px #22c55e';
+      if (text) {
+        text.textContent = 'Active';
+        text.style.color = '#15803d';
+      }
+      if (badge) badge.title = 'Active now';
+    } else {
+      dot.style.background = '#94a3b8';
+      dot.style.boxShadow = 'none';
+      const ago = formatRelativeTime(effectiveTime);
+      if (text) {
+        text.textContent = ago;
+        text.style.color = '#64748b';
+      }
+      let fullTime = '';
+      try {
+        if (effectiveTime) fullTime = ` (${new Date(effectiveTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+      } catch (e) {}
+      if (badge) badge.title = effectiveTime ? `Last active ${ago}${fullTime}` : 'Offline';
+    }
+  }
+
+  async function checkUnicatOnlineStatus() {
+    // 1. Check if any message from unicat provides a newer timestamp
+    if (Array.isArray(messages)) {
+      for (const m of messages) {
+        if ((m.senderSite === 'unicat' || m.senderAdmin === 'unicat') && m.createdAt) {
+          const t = new Date(m.createdAt).getTime();
+          if (t && t > cachedUnicatLastSeen) {
+            updateStatusUI(t);
+          }
+        }
+      }
+    }
+
+    // 2. Render immediately from cache
+    updateStatusUI(0);
+
+    // 3. Query server with timeout protection
+    try {
+      const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), 4000) : null;
+      const resp = await fetch(`${FIRESTORE_BASE}/crossSiteStatus/unicat`, {
+        signal: controller ? controller.signal : undefined
+      });
+      if (timer) clearTimeout(timer);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
+      if (lastSeen) updateStatusUI(lastSeen);
     } catch (e) {}
   }
 
@@ -1395,6 +1442,8 @@
 
     injectStyles();
     buildUI();
+    updateStatusUI(0);
+    checkUnicatOnlineStatus();
     setChannel('admins');
 
     const label = document.getElementById('sds-admin-label');
