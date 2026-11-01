@@ -608,6 +608,27 @@
     return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   }
 
+  function handleMediaError(err) {
+    console.error('[SDS Media Error]', err);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Microphone access is unavailable: Browsers require HTTPS or http://localhost to access microphones. If you opened via file:// or unsecure HTTP, microphone access is blocked by the browser.');
+      return;
+    }
+    if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+      alert('Microphone access is blocked.\n\n1. In Chrome, check chrome://settings/content/microphone and set to Allowed.\n2. In Windows Settings > Privacy & Security > Microphone, ensure "Let desktop apps access your microphone" is ON.');
+      return;
+    }
+    if (err && (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError')) {
+      alert('No microphone detected! Please plug in a microphone or headset.');
+      return;
+    }
+    if (err && (err.name === 'NotReadableError' || err.name === 'TrackStartError')) {
+      alert('Microphone is in use by another application. Please close other audio apps and try again.');
+      return;
+    }
+    alert('Microphone error: ' + (err?.message || err?.name || 'Permission needed'));
+  }
+
   async function answerCall() {
     if (!incomingCallData) return;
     const { mediaCall, callType } = incomingCallData;
@@ -634,8 +655,7 @@
 
       showActiveCallUI();
     } catch (err) {
-      console.error('ACC call error:', err);
-      alert('Microphone/Camera permission needed');
+      handleMediaError(err);
     }
   }
 
@@ -659,7 +679,7 @@
     try {
       stream = await getPayrollMediaStream(type === 'video');
     } catch (err) {
-      alert('Microphone access is required for CNCT.');
+      handleMediaError(err);
       return;
     }
 
@@ -722,8 +742,7 @@
 
       showActiveCallUI();
     } catch (err) {
-      console.error('Initiate admin call error:', err);
-      alert('Mic/Cam permission needed for CNCT.');
+      handleMediaError(err);
     }
   }
   function showActiveCallUI() {
