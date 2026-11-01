@@ -187,38 +187,36 @@
         const readTime = new Date(msg.readAt).getTime() || Date.now();
         const elapsed = (Date.now() - readTime) / 1000;
         const remaining = (durationSec - elapsed) * 1000;
-        const timer = setTimeout(() => removeMessage(msg, false), Math.max(remaining, 500));
-        deleteTimers.set(msg.id, timer);
-      } else {
-        // Not seen yet: safety timeout (10 mins) so old messages never get stuck forever
-        const sendTime = new Date(msg.createdAt).getTime() || Date.now();
-        const elapsed = (Date.now() - sendTime) / 1000;
-        const safetyMax = 10 * 60; // 10 minutes maximum if unread
-        if (elapsed >= safetyMax) {
-          removeMessage(msg, false);
-          return;
-        }
-        const remaining = (safetyMax - elapsed) * 1000;
-        const timer = setTimeout(() => removeMessage(msg, false), Math.max(remaining, 1000));
+        const timer = setTimeout(() => removeMessage(msg, true), Math.max(remaining, 500));
         deleteTimers.set(msg.id, timer);
       }
+      // Never delete before seen! Stays as "Sent" until viewed.
       return;
     }
 
-    // Receiver side: marks read and starts timer upon viewing
+    // Receiver side:
+    // Only mark read and start countdown if receiver is ACTIVELY viewing the chat!
+    const isViewing = pkgOpen && (typeof document === 'undefined' || !document.hidden);
+    if (!isViewing) {
+      // Chat not open / tab in background - DO NOT mark read, DO NOT start countdown!
+      return;
+    }
+
     if (!msg.readAt && channelMode === 'cross') {
       markMessageAsRead(msg.id);
+      msg.readAt = new Date().toISOString();
     }
 
     if (deleteTimers.has(msg.id)) return;
     const now = Date.now();
     let first = firstSeenAt.get(msg.id);
-    if (!first || (now - first) >= durationSec * 1000) {
+    if (!first) {
       first = now;
+      firstSeenAt.set(msg.id, first);
     }
-    firstSeenAt.set(msg.id, first);
-    const remaining = durationSec * 1000 - (now - first);
-    const timer = setTimeout(() => removeMessage(msg, false), Math.max(remaining, 0));
+    const elapsed = (now - first) / 1000;
+    const remaining = (durationSec - elapsed) * 1000;
+    const timer = setTimeout(() => removeMessage(msg, true), Math.max(remaining, 500));
     deleteTimers.set(msg.id, timer);
   }
 
@@ -360,73 +358,80 @@
     wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;${isNew ? 'animation:sdsIn 0.2s;' : ''}`;
 
     const isSeen = !!msg.readAt;
-    const bubble = document.createElement('div');
-    bubble.className = 'sds-msg-bubble';
-    bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#dbeafe;color:#1e293b;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(59,130,246,0.2);' : 'background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);'}${isMe && isSeen ? 'border:1px solid #60a5fa;' : ''}`;
 
-    if (msg.fileName && msg.fileData) {
-      if (isImageFile(msg.fileName)) {
-        const img = document.createElement('img');
-        img.src = msg.fileData;
-        img.alt = msg.fileName;
-        img.title = 'Click to view photo';
-        img.setAttribute('draggable', 'false');
-        img.oncontextmenu = (e) => e.preventDefault();
-        img.style.cssText = 'width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:6px;cursor:pointer;transition:transform 0.15s;user-select:none;-webkit-user-select:none;';
-        img.onmouseover = () => { img.style.transform = 'scale(1.02)'; };
-        img.onmouseout = () => { img.style.transform = 'scale(1)'; };
-        img.onclick = (e) => {
-          e.stopPropagation();
-          openImageLightbox(msg.fileData, msg.fileName, msg);
-        };
-        bubble.appendChild(img);
-      } else {
-        const fileBtn = document.createElement('div');
-        fileBtn.style.cssText = `display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:10px;font-weight:700;margin-bottom:6px;width:100%;${isMe ? 'background:rgba(255,255,255,0.1);color:#93c5fd;' : 'background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.2);'}`;
-        fileBtn.innerHTML = `📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:left;">${escapeHtml(msg.fileName)}</span>`;
-        bubble.appendChild(fileBtn);
+    if (isMe) {
+      /* Sender view: hide message content, show Sent / Seen status badge */
+      const badge = document.createElement('div');
+      badge.className = 'sds-msg-sender-badge';
+      badge.style.cssText = `padding:6px 12px;border-radius:12px;font-size:11px;font-weight:700;display:flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,0,0,0.06);transition:all 0.2s;${isSeen ? 'background:#eff6ff;color:#2563eb;border:1px solid #93c5fd;' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;'}`;
+      badge.innerHTML = isSeen
+        ? `<span class="sds-msg-status" style="color:#2563eb;font-weight:800;">✓✓ Seen</span>`
+        : `<span class="sds-msg-status" style="color:#94a3b8;font-weight:800;">✓✓ Sent</span>`;
+      wrapper.appendChild(badge);
+    } else {
+      /* Receiver view: show full content (photos, quotes, links, text) */
+      const bubble = document.createElement('div');
+      bubble.className = 'sds-msg-bubble';
+      bubble.style.cssText = 'max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);';
+
+      if (msg.fileName && msg.fileData) {
+        if (isImageFile(msg.fileName)) {
+          const img = document.createElement('img');
+          img.src = msg.fileData;
+          img.alt = msg.fileName;
+          img.title = 'Click to view photo';
+          img.setAttribute('draggable', 'false');
+          img.oncontextmenu = (e) => e.preventDefault();
+          img.style.cssText = 'width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:6px;cursor:pointer;transition:transform 0.15s;user-select:none;-webkit-user-select:none;';
+          img.onmouseover = () => { img.style.transform = 'scale(1.02)'; };
+          img.onmouseout = () => { img.style.transform = 'scale(1)'; };
+          img.onclick = (e) => {
+            e.stopPropagation();
+            openImageLightbox(msg.fileData, msg.fileName, msg);
+          };
+          bubble.appendChild(img);
+        } else {
+          const fileBtn = document.createElement('div');
+          fileBtn.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:10px;font-weight:700;margin-bottom:6px;width:100%;background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.2);';
+          fileBtn.innerHTML = `📄 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:left;">${escapeHtml(msg.fileName)}</span>`;
+          bubble.appendChild(fileBtn);
+        }
       }
-    }
 
-    if (msg.replyToText) {
-      const quote = document.createElement('div');
-      quote.style.cssText = 'font-size:10px;padding:3px 8px;border-left:3px solid #3b82f6;background:rgba(59,130,246,0.1);color:#64748b;margin-bottom:4px;border-radius:2px;max-width:85%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-      quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">Ref:</span> ${linkifyText(msg.replyToText)}`;
-      bubble.insertBefore(quote, bubble.firstChild);
-    }
+      if (msg.replyToText) {
+        const quote = document.createElement('div');
+        quote.style.cssText = 'font-size:10px;padding:3px 8px;border-left:3px solid #3b82f6;background:rgba(59,130,246,0.1);color:#64748b;margin-bottom:4px;border-radius:2px;max-width:85%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">Ref:</span> ${linkifyText(msg.replyToText)}`;
+        bubble.insertBefore(quote, bubble.firstChild);
+      }
 
-    if (msg.content) {
-      const p = document.createElement('p');
-      p.style.cssText = 'margin:0;line-height:1.5;white-space:pre-wrap;word-break:break-word;';
-      p.innerHTML = linkifyText(msg.content);
-      bubble.appendChild(p);
+      if (msg.content) {
+        const p = document.createElement('p');
+        p.style.cssText = 'margin:0;line-height:1.5;white-space:pre-wrap;word-break:break-word;';
+        p.innerHTML = linkifyText(msg.content);
+        bubble.appendChild(p);
+      }
+      wrapper.appendChild(bubble);
     }
-    wrapper.appendChild(bubble);
 
     const time = document.createElement('span');
     time.style.cssText = 'font-size:9px;color:#64748b;margin-top:2px;padding:0 4px;display:flex;align-items:center;gap:4px;';
-    let statusHtml = '';
-    if (isMe) {
-      if (isSeen) {
-        statusHtml = `<span class="sds-msg-status" style="color:#2563eb;font-weight:700;">✓✓ Seen</span>`;
-      } else {
-        statusHtml = `<span class="sds-msg-status" style="color:#94a3b8;font-weight:500;">✓✓ Sent</span>`;
-      }
-    }
-    time.innerHTML = `<span>${formatTime(msg.createdAt)}</span> ${statusHtml}`;
+    time.innerHTML = `<span>${formatTime(msg.createdAt)}</span>`;
     wrapper.appendChild(time);
 
     const actions = document.createElement('div');
     actions.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:2px;';
 
-    const replyBtn = document.createElement('button');
-    replyBtn.textContent = '↩';
-    replyBtn.title = 'Reply with reference';
-    replyBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;opacity:0.6;';
-    replyBtn.onmouseover = () => { replyBtn.style.opacity = '1'; };
-    replyBtn.onmouseout = () => { replyBtn.style.opacity = '0.6'; };
-    replyBtn.onclick = () => setReplyTo(msg);
-    actions.appendChild(replyBtn);
+    if (!isMe) {
+      const replyBtn = document.createElement('button');
+      replyBtn.textContent = '↩';
+      replyBtn.title = 'Reply with reference';
+      replyBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;opacity:0.6;';
+      replyBtn.onmouseover = () => { replyBtn.style.opacity = '1'; };
+      replyBtn.onmouseout = () => { replyBtn.style.opacity = '0.6'; };
+      replyBtn.onclick = () => setReplyTo(msg);
+      actions.appendChild(replyBtn);
+    }
 
     const delBtn = document.createElement('button');
     delBtn.textContent = '🗑';
@@ -473,21 +478,12 @@
       let existing = document.getElementById('sds-msg-' + msg.id);
       if (existing) {
         const isRead = !!msg.readAt;
-        const statusEl = existing.querySelector('.sds-msg-status');
-        if (statusEl) {
-          if (isRead) {
-            statusEl.style.color = '#2563eb';
-            statusEl.style.fontWeight = '700';
-            statusEl.textContent = '✓✓ Seen';
-          } else {
-            statusEl.style.color = '#94a3b8';
-            statusEl.style.fontWeight = '500';
-            statusEl.textContent = '✓✓ Sent';
-          }
-        }
-        const b = existing.querySelector('.sds-msg-bubble');
-        if (b && (channelMode === 'cross' ? msg.senderSite === SITE_ID : msg.senderAdmin === MY_USERNAME)) {
-          if (isRead) b.style.border = '1px solid #60a5fa';
+        const badge = existing.querySelector('.sds-msg-sender-badge');
+        if (badge) {
+          badge.style.cssText = `padding:6px 12px;border-radius:12px;font-size:11px;font-weight:700;display:flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,0,0,0.06);transition:all 0.2s;${isRead ? 'background:#eff6ff;color:#2563eb;border:1px solid #93c5fd;' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;'}`;
+          badge.innerHTML = isRead
+            ? `<span class="sds-msg-status" style="color:#2563eb;font-weight:800;">✓✓ Seen</span>`
+            : `<span class="sds-msg-status" style="color:#94a3b8;font-weight:800;">✓✓ Sent</span>`;
         }
         return;
       }
@@ -1311,6 +1307,7 @@
       fab.style.display = 'none';
       startPolling();
       checkUnicatOnlineStatus();
+      messages.forEach(scheduleAutoDelete);
     } else {
       container.style.display = 'none';
       fab.style.display = 'flex';
