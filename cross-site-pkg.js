@@ -366,8 +366,10 @@
     wrapper.setAttribute('data-msg-id', msg.id);
     wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;${isNew ? 'animation:sdsIn 0.2s;' : ''}`;
 
+    const isSeen = !!msg.readAt;
     const bubble = document.createElement('div');
-    bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#dbeafe;color:#1e293b;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(59,130,246,0.2);' : 'background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);'}`;
+    bubble.className = 'sds-msg-bubble';
+    bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#dbeafe;color:#1e293b;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(59,130,246,0.2);' : 'background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);'}${isMe && isSeen ? 'border:1px solid #60a5fa;' : ''}`;
 
     if (msg.fileName && msg.fileData) {
       if (isImageFile(msg.fileName)) {
@@ -409,8 +411,16 @@
     wrapper.appendChild(bubble);
 
     const time = document.createElement('span');
-    time.style.cssText = 'font-size:9px;color:#64748b;margin-top:2px;padding:0 4px;';
-    time.textContent = formatTime(msg.createdAt) + (isMe ? ' ✓✓' : '');
+    time.style.cssText = 'font-size:9px;color:#64748b;margin-top:2px;padding:0 4px;display:flex;align-items:center;gap:4px;';
+    let statusHtml = '';
+    if (isMe) {
+      if (isSeen) {
+        statusHtml = `<span class="sds-msg-status" style="color:#2563eb;font-weight:700;">✓✓ Seen</span>`;
+      } else {
+        statusHtml = `<span class="sds-msg-status" style="color:#94a3b8;font-weight:500;">✓✓ Sent</span>`;
+      }
+    }
+    time.innerHTML = `<span>${formatTime(msg.createdAt)}</span> ${statusHtml}`;
     wrapper.appendChild(time);
 
     const actions = document.createElement('div');
@@ -469,6 +479,23 @@
     messages.forEach(msg => {
       let existing = document.getElementById('sds-msg-' + msg.id);
       if (existing) {
+        const isRead = !!msg.readAt;
+        const statusEl = existing.querySelector('.sds-msg-status');
+        if (statusEl) {
+          if (isRead) {
+            statusEl.style.color = '#2563eb';
+            statusEl.style.fontWeight = '700';
+            statusEl.textContent = '✓✓ Seen';
+          } else {
+            statusEl.style.color = '#94a3b8';
+            statusEl.style.fontWeight = '500';
+            statusEl.textContent = '✓✓ Sent';
+          }
+        }
+        const b = existing.querySelector('.sds-msg-bubble');
+        if (b && (channelMode === 'cross' ? msg.senderSite === SITE_ID : msg.senderAdmin === MY_USERNAME)) {
+          if (isRead) b.style.border = '1px solid #60a5fa';
+        }
         return;
       }
       hasNew = true;
