@@ -44,7 +44,7 @@
       preview.style.display = 'flex';
       const userEl = document.getElementById('sds-reply-user');
       const textEl = document.getElementById('sds-reply-text');
-      if (userEl) userEl.textContent = replyingTo.sender;
+      if (userEl) userEl.textContent = 'Replying';
       if (textEl) textEl.textContent = replyingTo.text;
     } else {
       preview.style.display = 'none';
@@ -251,19 +251,6 @@
     wrapper.setAttribute('data-msg-id', msg.id);
     wrapper.style.cssText = `display:flex;flex-direction:column;${isMe ? 'align-items:flex-end' : 'align-items:flex-start'};margin-bottom:12px;${isNew ? 'animation:sdsIn 0.2s;' : ''}`;
 
-    if (isMe) {
-      const badge = document.createElement('span');
-      badge.style.cssText = 'font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;background:rgba(59,130,246,0.15);color:#2563eb;border:1px solid rgba(59,130,246,0.3);';
-      badge.textContent = `${msg.senderSite.toUpperCase()} • ${msg.senderAdmin}`;
-      wrapper.appendChild(badge);
-    } else {
-      const badge = document.createElement('span');
-      badge.style.cssText = 'font-size:9px;font-weight:700;margin-bottom:2px;padding:2px 6px;border-radius:4px;background:rgba(100,116,139,0.15);color:#475569;border:1px solid rgba(100,116,139,0.3);';
-      const sender = msg.senderSite === 'unicat' ? `UNICAT • ${msg.senderAdmin || 'Member'}` : (msg.senderAdmin || 'Admin');
-      badge.textContent = sender;
-      wrapper.appendChild(badge);
-    }
-
     const bubble = document.createElement('div');
     bubble.style.cssText = `max-width:85%;padding:10px 12px;border-radius:16px;font-size:12px;word-wrap:break-word;${isMe ? 'background:#dbeafe;color:#1e293b;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(59,130,246,0.2);' : 'background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.1);'}`;
 
@@ -287,7 +274,7 @@
     if (msg.replyToText) {
       const quote = document.createElement('div');
       quote.style.cssText = 'font-size:10px;padding:3px 8px;border-left:3px solid #3b82f6;background:rgba(59,130,246,0.1);color:#64748b;margin-bottom:4px;border-radius:2px;max-width:85%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-      quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">${escapeHtml(msg.replyToSender || 'Ref')}:</span> ${escapeHtml(msg.replyToText)}`;
+      quote.innerHTML = `<span style="font-weight:700;color:#2563eb;">Ref:</span> ${escapeHtml(msg.replyToText)}`;
       bubble.insertBefore(quote, bubble.firstChild);
     }
 
