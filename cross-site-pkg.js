@@ -686,8 +686,36 @@
     localStream = stream;
     activeCallType = type;
 
-    // Unicat registers 'unicat-peer-admin' bridge for any logged-in Unicat member
-    const targetPeerId = 'unicat-peer-admin';
+    let targetPeerId = 'unicat-peer-admin';
+    let isRemoteOnline = false;
+    try {
+      const resp = await fetch(`${FIRESTORE_BASE}/crossSiteStatus/unicat`);
+      const data = await resp.json();
+      if (data?.fields?.peerId?.stringValue) {
+        targetPeerId = data.fields.peerId.stringValue;
+      }
+      const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
+      isRemoteOnline = lastSeen && (Date.now() - lastSeen < 30000);
+    } catch (e) {}
+
+    if (!isRemoteOnline) {
+      const proceed = confirm('Remote peer appears offline. To receive calls, the user on the other site must have their chat panel open.\n\nDo you still want to try ringing?');
+      if (!proceed) {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        localStream = null;
+        return;
+      }
+    }
+
+    const peerErrorHandler = (err) => {
+      console.warn('[SDS Call Peer Error]', err);
+      if (err.type === 'peer-unavailable') {
+        endCall();
+        alert('Call failed: Remote peer is not currently online or has not opened their chat panel.');
+      }
+    };
+    callerPeer.on('error', peerErrorHandler);
+
     const mediaCall = callerPeer.call(targetPeerId, stream, { metadata: { callType: type } });
     activeCallConnection = mediaCall;
 
@@ -696,10 +724,14 @@
       showActiveCallUI();
     });
 
-    mediaCall.on('close', () => endCall());
-    mediaCall.on('error', () => {
+    mediaCall.on('close', () => {
+      try { callerPeer.off('error', peerErrorHandler); } catch (_) {}
       endCall();
-      alert('CNCT failed - Peer is not currently online.');
+    });
+    mediaCall.on('error', (err) => {
+      try { callerPeer.off('error', peerErrorHandler); } catch (_) {}
+      endCall();
+      alert('Call failed: Peer connection closed or peer is offline.');
     });
 
     showActiveCallUI();
@@ -708,7 +740,7 @@
   // OPR-to-OPR CNCT inside payroll (target: another payroll OPR)
   async function initiateAdminCall(type) {
     if (!targetAdmin) {
-      alert('Select a target OPR to CNCT.');
+      alert('To call Unicat, click the XST tab first.\n\nTo call another Payroll admin, select an admin from the dropdown.');
       return;
     }
     const callerPeer = await getReadyCallerPeer();
