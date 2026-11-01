@@ -1534,6 +1534,9 @@ function renderMonthlyAttendanceReport() {
     const attendance = store.getAttendance() || [];
     const settings = store.getSettings() || { stdWorkDays: 26 };
     
+    const [yearPart, monthPart] = month.split("-");
+    const daysInMonth = new Date(parseInt(yearPart), parseInt(monthPart), 0).getDate();
+    
     if (selectedDept && selectedDept !== "ALL") {
         employees = employees.filter(e => (e.department || "") === selectedDept);
     }
@@ -1550,7 +1553,7 @@ function renderMonthlyAttendanceReport() {
                         <th>Employee Name</th>
                         ${selectedDept === "ALL" ? `<th>Department</th>` : ''}
                         <th>Days Present</th>
-                        <th>Days Absent (Based on ${settings.stdWorkDays} std. days)</th>
+                        <th>Days Absent (Based on ${daysInMonth} days)</th>
                         <th>Normal OT (hrs)</th>
                         <th>Special OT (hrs)</th>
                     </tr>
@@ -1570,7 +1573,7 @@ function renderMonthlyAttendanceReport() {
             
             const daysPresent = empAtt.filter(a => a.checkIn || (!a.checkIn && !a.isLeave)).length;
             
-            let daysAbsent = settings.stdWorkDays - daysPresent;
+            let daysAbsent = daysInMonth - daysPresent;
             if (daysAbsent < 0) daysAbsent = 0;
             
             const normalOt = empAtt.reduce((sum, a) => sum + (a.normalOt || 0), 0);
@@ -1626,7 +1629,7 @@ function renderMonthlyAttendanceReport() {
         empAtt.sort((a, b) => a.date.localeCompare(b.date));
         
         const daysPresent = empAtt.filter(a => a.checkIn || (!a.checkIn && !a.isLeave)).length;
-        let daysAbsent = settings.stdWorkDays - daysPresent;
+        let daysAbsent = daysInMonth - daysPresent;
         if (daysAbsent < 0) daysAbsent = 0;
         
         const normalOt = empAtt.reduce((sum, a) => sum + (a.normalOt || 0), 0);
@@ -1638,8 +1641,9 @@ function renderMonthlyAttendanceReport() {
                 <p style="font-size: 16px; margin: 4px 0;"><strong>${emp.firstName} ${emp.lastName}</strong> (${emp.id})</p>
                 <p style="font-size: 13px; color:#555; margin: 0 0 10px 0;">Department: <strong>${emp.department || '-'}</strong></p>
                 <div style="display:flex; justify-content:center; gap:20px; margin-top: 10px; font-size: 14px;">
+                    <div>Month Days: <strong>${daysInMonth}</strong></div>
                     <div>Present: <strong>${daysPresent}</strong></div>
-                    <div>Absent (Std): <strong>${daysAbsent}</strong></div>
+                    <div>Absent: <strong>${daysAbsent}</strong></div>
                     <div>Normal OT: <strong>${normalOt.toFixed(2)}h</strong></div>
                     <div>Special OT: <strong>${specialOt.toFixed(2)}h</strong></div>
                 </div>
@@ -1780,7 +1784,7 @@ function processPayrollRun() {
         let noPayDays = Math.max(0, leaveTaken - allowedPaidDays);
         if (empAdjust.manualNoPayDays !== undefined && empAdjust.manualNoPayDays !== "") noPayDays = parseFloat(empAdjust.manualNoPayDays);
         
-        let daysWorked = Math.max(0, daysInMonth - noPayDays + extraWorkingDays);
+        let daysWorked = Math.max(0, daysInMonth - leaveTaken + extraWorkingDays);
         if (empAdjust.manualDaysWorked !== undefined && empAdjust.manualDaysWorked !== "") daysWorked = parseFloat(empAdjust.manualDaysWorked);
 
         const empBaseSalary = emp.baseSalary || 0;
@@ -1791,7 +1795,7 @@ const specialOtRateVal = Math.ceil(baseHourlyRate * 2.0);
         const normalOtPay = round2(normalOtHours * otRate);
         const specialOtPay = round2(specialOtHours * specialOtRateVal);
         
-        const noPayDeductions = round2(noPayDays * (empBaseSalary / 30));
+        const noPayDeductions = round2(noPayDays * (empBaseSalary / daysInMonth));
         const totalEarnings = round2(empBaseSalary + (empAdjust.salaryArrears || 0));
         const totalForEpf = round2(Math.max(0, totalEarnings - noPayDeductions));
 
@@ -1820,7 +1824,7 @@ const specialOtRateVal = Math.ceil(baseHourlyRate * 2.0);
                 if (isAttendance) {
                     autoNoPayAllowDeduct = val;
                 } else {
-                    autoNoPayAllowDeduct = round2((val / 30) * noPayDays);
+                    autoNoPayAllowDeduct = round2((val / daysInMonth) * noPayDays);
                 }
             }
 
@@ -2060,7 +2064,7 @@ function openAdjustmentModal(month, empId) {
     const calcLeaveTaken = Math.max(0, daysInMonth - checkedInDays);
     const allowedPaidDays = settings.paidLeaves !== undefined ? settings.paidLeaves : 4;
     const calcNoPayDays = Math.max(0, calcLeaveTaken - allowedPaidDays);
-    const calcDaysWorked = Math.max(0, daysInMonth - calcNoPayDays + extraWorkingDays);
+    const calcDaysWorked = Math.max(0, daysInMonth - calcLeaveTaken + extraWorkingDays);
 
     let modal = document.getElementById("modal-adjustment");
     if (!modal) {
@@ -2082,12 +2086,12 @@ function openAdjustmentModal(month, empId) {
             <div class="form-row">
                 <div class="form-group col-6">
                     <label for="adj-dedu-${item1.id}">${item1.name} Recovery / Penalty (LKR)</label>
-                    <input type="number" id="adj-dedu-${item1.id}" class="form-input" value="${ded1}">
+                    <input type="number" step="0.01" id="adj-dedu-${item1.id}" class="form-input" value="${Number(ded1).toFixed(2)}">
                 </div>
                 ${item2 ? `
                 <div class="form-group col-6">
                     <label for="adj-dedu-${item2.id}">${item2.name} Recovery / Penalty (LKR)</label>
-                    <input type="number" id="adj-dedu-${item2.id}" class="form-input" value="${ded2}">
+                    <input type="number" step="0.01" id="adj-dedu-${item2.id}" class="form-input" value="${Number(ded2).toFixed(2)}">
                 </div>
                 ` : '<div class="form-group col-6"></div>'}
             </div>
@@ -2138,21 +2142,21 @@ function openAdjustmentModal(month, empId) {
                     <div class="form-row">
                         <div class="form-group col-6">
                             <label for="adj-arrears">Salary Arrears (LKR)</label>
-                            <input type="number" id="adj-arrears" class="form-input" value="${val.salaryArrears || 0}">
+                            <input type="number" step="0.01" id="adj-arrears" class="form-input" value="${Number(val.salaryArrears || 0).toFixed(2)}">
                         </div>
                         <div class="form-group col-6">
                             <label for="adj-sales-incentive">Sales Incentive (LKR)</label>
-                            <input type="number" id="adj-sales-incentive" class="form-input" value="${val.salesIncentive || 0}">
+                            <input type="number" step="0.01" id="adj-sales-incentive" class="form-input" value="${Number(val.salesIncentive || 0).toFixed(2)}">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group col-6">
                             <label for="adj-nit-sales-incentive">NIT. Sales Incentive (LKR)</label>
-                            <input type="number" id="adj-nit-sales-incentive" class="form-input" value="${val.nitSalesIncentive || 0}">
+                            <input type="number" step="0.01" id="adj-nit-sales-incentive" class="form-input" value="${Number(val.nitSalesIncentive || 0).toFixed(2)}">
                         </div>
                         <div class="form-group col-6">
                             <label for="adj-vgd-sales-incentive">VGD. Sales Incentive (LKR)</label>
-                            <input type="number" id="adj-vgd-sales-incentive" class="form-input" value="${val.vgdSalesIncentive || 0}">
+                            <input type="number" step="0.01" id="adj-vgd-sales-incentive" class="form-input" value="${Number(val.vgdSalesIncentive || 0).toFixed(2)}">
                         </div>
                     </div>
                     
@@ -2160,37 +2164,37 @@ function openAdjustmentModal(month, empId) {
                     <div class="form-row">
                         <div class="form-group col-6">
                             <label for="adj-welfare">Welfare (LKR)</label>
-                            <input type="number" id="adj-welfare" class="form-input" value="${val.welfare || 0}">
+                            <input type="number" step="0.01" id="adj-welfare" class="form-input" value="${Number(val.welfare || 0).toFixed(2)}">
                         </div>
                         <div class="form-group col-6">
                             <label for="adj-advance">Salary Advance (LKR)</label>
-                            <input type="number" id="adj-advance" class="form-input" value="${val.salaryAdvance || 0}">
+                            <input type="number" step="0.01" id="adj-advance" class="form-input" value="${Number(val.salaryAdvance || 0).toFixed(2)}">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group col-6">
                             <label for="adj-losses">Cash Losses (LKR)</label>
-                            <input type="number" id="adj-losses" class="form-input" value="${val.cashLosses || 0}">
+                            <input type="number" step="0.01" id="adj-losses" class="form-input" value="${Number(val.cashLosses || 0).toFixed(2)}">
                         </div>
                         <div class="form-group col-6">
                             <label for="adj-festival">Festival Advance (LKR)</label>
-                            <input type="number" id="adj-festival" class="form-input" value="${val.festivalAdvance || 0}">
+                            <input type="number" step="0.01" id="adj-festival" class="form-input" value="${Number(val.festivalAdvance || 0).toFixed(2)}">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group col-6">
                             <label for="adj-loan">Loan Instalment (LKR)</label>
-                            <input type="number" id="adj-loan" class="form-input" value="${val.loanInstalment || 0}">
+                            <input type="number" step="0.01" id="adj-loan" class="form-input" value="${Number(val.loanInstalment || 0).toFixed(2)}">
                         </div>
                         <div class="form-group col-6">
                             <label for="adj-phone">Pvt Office Phone Usage (LKR)</label>
-                            <input type="number" id="adj-phone" class="form-input" value="${val.pvtPhoneUsage || 0}">
+                            <input type="number" step="0.01" id="adj-phone" class="form-input" value="${Number(val.pvtPhoneUsage || 0).toFixed(2)}">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group col-6">
                             <label for="adj-reddots">Dedu. For Red Dots (LKR)</label>
-                            <input type="number" id="adj-reddots" class="form-input" value="${val.deduRedDots || 0}">
+                            <input type="number" step="0.01" id="adj-reddots" class="form-input" value="${Number(val.deduRedDots || 0).toFixed(2)}">
                         </div>
                     </div>
                     
@@ -2207,6 +2211,23 @@ function openAdjustmentModal(month, empId) {
     `;
 
     modal.style.display = "flex";
+
+    // Auto-compute No-Pay when Leave Taken is edited (leaves exceeding paid leaves count)
+    const adjLeaveInput = document.getElementById("adj-leave-taken");
+    const adjNoPayInput = document.getElementById("adj-no-pay");
+    const adjDaysWorkedInput = document.getElementById("adj-days-worked");
+    if (adjLeaveInput && adjNoPayInput && adjDaysWorkedInput) {
+        adjLeaveInput.addEventListener("input", () => {
+            const lVal = adjLeaveInput.value !== "" ? parseFloat(adjLeaveInput.value) : calcLeaveTaken;
+            const computedNoPay = Math.max(0, (isNaN(lVal) ? 0 : lVal) - allowedPaidDays);
+            if (!adjNoPayInput.value) {
+                adjNoPayInput.placeholder = computedNoPay;
+            }
+            if (!adjDaysWorkedInput.value) {
+                adjDaysWorkedInput.placeholder = Math.max(0, daysInMonth - (isNaN(lVal) ? 0 : lVal) + extraWorkingDays);
+            }
+        });
+    }
 
     document.getElementById("form-adjustment").addEventListener("submit", (e) => {
         e.preventDefault();
@@ -2634,23 +2655,24 @@ function generateEpfCForm() {
                 <tbody>
                     ${rowsHTML}
                     <tr>
-                        <td colspan="3" style="border:1px solid #000; padding:5px; font-size: 8px; line-height: 1.2;">
-                            ඉහත සඳහන් විස්තර නිවැරදි බව සහතික කරමි.<br>
-                            <span style="font-size: 7px;">குறிப்பிடப்பட்ட விபரங்கள் சரியானவை என உறுதிப்படுத்துகின்றேன்</span>.<br>
-                            I certify that the information given above is correct.
+                        <td colspan="4" style="border:1px solid #000; padding:6px; font-weight: bold; text-align:right; font-size: 10px; vertical-align: middle;">
+                            එකතුව / <span style="font-size: 8px;">மொத்தம்</span> / Total
                         </td>
-                        <td style="border:1px solid #000; padding:5px; font-weight: bold; text-align:right; font-size: 9px; vertical-align: middle;">
-                            එකතුව/<span style="font-size: 7px;">மொத்தம்</span>/Total
-                        </td>
-                        <td style="border:1px solid #000; padding:5px; font-weight: bold; text-align:right; vertical-align: middle;">${totalContribution.toFixed(2)}</td>
-                        <td style="border:1px solid #000; padding:5px; font-weight: bold; text-align:right; vertical-align: middle;">${totalEmployerCont.toFixed(2)}</td>
-                        <td style="border:1px solid #000; padding:5px; font-weight: bold; text-align:right; vertical-align: middle;">${totalEmployeeCont.toFixed(2)}</td>
-                        <td style="border:1px solid #000; padding:5px; font-weight: bold; text-align:right; vertical-align: middle;">${totalEpfEarnings.toFixed(2)}</td>
+                        <td style="border:1px solid #000; padding:6px; font-weight: bold; text-align:right; vertical-align: middle;">${totalContribution.toFixed(2)}</td>
+                        <td style="border:1px solid #000; padding:6px; font-weight: bold; text-align:right; vertical-align: middle;">${totalEmployerCont.toFixed(2)}</td>
+                        <td style="border:1px solid #000; padding:6px; font-weight: bold; text-align:right; vertical-align: middle;">${totalEmployeeCont.toFixed(2)}</td>
+                        <td style="border:1px solid #000; padding:6px; font-weight: bold; text-align:right; vertical-align: middle;">${totalEpfEarnings.toFixed(2)}</td>
                     </tr>
                 </tbody>
             </table>
 
-            <div style="font-size: 11px; margin-top: 30px;">
+            <div style="font-size: 9px; line-height: 1.4; margin-top: 15px; margin-bottom: 50px;">
+                ඉහත සඳහන් විස්තර නිවැරදි බව සහතික කරමි.<br>
+                <span style="font-size: 7px;">குறிப்பிடப்பட்ட விபரங்கள் சரியானவை என உறுதிப்படுத்துகின்றேன்</span>.<br>
+                I certify that the information given above is correct.
+            </div>
+
+            <div style="font-size: 11px; margin-top: 40px;">
                 <div style="display:flex; justify-content:space-between; align-items:flex-end;">
                     <div style="text-align: center;">
                         ....................................................................<br>
