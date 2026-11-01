@@ -93,10 +93,65 @@
         readAt:      { stringValue: '' },
       },
     };
-    await fetch(`${FIRESTORE_BASE}/crossSiteChat?documentId=${msg.id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 6000) : null;
+    try {
+      await fetch(`${FIRESTORE_BASE}/crossSiteChat?documentId=${msg.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller ? controller.signal : undefined,
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // ── Local Storage Messages Cache ─────────────────────────────────
+  function getStoredMessages() {
+    try {
+      return JSON.parse(localStorage.getItem('sds_messages_store') || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function storeMessage(msg) {
+    try {
+      const all = getStoredMessages();
+      if (!all.some(m => m.id === msg.id)) {
+        all.push(msg);
+        localStorage.setItem('sds_messages_store', JSON.stringify(all.slice(-200)));
+      }
+    } catch (e) {}
+  }
+
+  function storeMessages(msgs) {
+    try {
+      const all = getStoredMessages();
+      const map = new Map(all.map(m => [m.id, m]));
+      msgs.forEach(m => { if (m && m.id) map.set(m.id, m); });
+      const merged = Array.from(map.values()).slice(-200);
+      localStorage.setItem('sds_messages_store', JSON.stringify(merged));
+    } catch (e) {}
+  }
+
+  function removeStoredMessage(id) {
+    try {
+      const all = getStoredMessages().filter(m => m.id !== id);
+      localStorage.setItem('sds_messages_store', JSON.stringify(all));
+    } catch (e) {}
+  }
+
+  function filterMessagesForChannel(all, mode) {
+    return all.filter(m => {
+      const isCross = (m.channel === 'cross' || m.senderSite === 'unicat' || m.recipient === 'payroll' || m.recipient === 'unicat');
+      if (mode === 'cross') {
+        return isCross;
+      } else {
+        if (isCross) return false;
+        return m.senderSite === SITE_ID && (m.recipient === '' || m.recipient === MY_USERNAME || m.senderAdmin === MY_USERNAME);
+      }
     });
   }
 
@@ -131,15 +186,12 @@
   async function removeMessage(msg, askConfirm) {
     if (askConfirm && !confirm('Del this PKG for both sites?')) return;
     try {
-      await firestoreDeleteMessage(msg.id);
-    } catch (err) {
-      console.error('Delete failed:', err);
-      if (askConfirm) alert('Delete failed — please try again.');
-      return;
-    }
+      firestoreDeleteMessage(msg.id).catch(() => {});
+    } catch (err) {}
     const timer = deleteTimers.get(msg.id);
     if (timer) { clearTimeout(timer); deleteTimers.delete(msg.id); }
     firstSeenAt.delete(msg.id);
+    removeStoredMessage(msg.id);
     messages = messages.filter((m) => m.id !== msg.id);
     renderMessages();
     const countEl = document.getElementById('sds-msg-count');
@@ -178,6 +230,8 @@
   }
 
   async function firestoreFetchMessages() {
+    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 6000) : null;
     try {
       const queryBody = {
         structuredQuery: {
@@ -192,8 +246,10 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(queryBody),
+          signal: controller ? controller.signal : undefined,
         }
       );
+      if (timer) clearTimeout(timer);
       if (!resp.ok) {
         console.warn('[SDS] Firestore response status:', resp.status);
         return null;
@@ -400,7 +456,8 @@
       timerSec: deleteAfterSeconds || 60,
     };
 
-    // Immediately push and display in UI so user message is never lost even if network is slow
+    // Store in localStorage immediately
+    storeMessage(msg);
     messages.push(msg);
     if (input) input.value = '';
     attachedFile = null;
@@ -409,6 +466,9 @@
     renderMessages(true);
     const countEl = document.getElementById('sds-msg-count');
     if (countEl) countEl.textContent = messages.length + ' pkgs';
+
+    // Broadcast over P2P DataChannel if peer connection is active
+    sendPeerMessage(msg);
 
     try {
       await firestoreAddMessage(msg);
@@ -432,6 +492,39 @@
     } else {
       preview.style.display = 'none';
       preview.innerHTML = '';
+    }
+  }
+
+  function sendPeerMessage(msg) {
+    try {
+      const targetPeerId = (channelMode === 'cross')
+        ? 'unicat-peer-admin'
+        : (targetAdmin ? `payroll-peer-${targetAdmin}` : null);
+
+      const activePeer = (channelMode === 'cross') ? peers.cross : peers.admin;
+      if (activePeer && activePeer.open && targetPeerId) {
+        const conn = activePeer.connect(targetPeerId);
+        conn.on('open', () => {
+          conn.send({ type: 'msg', msg: msg });
+        });
+      }
+    } catch (e) {}
+  }
+
+  function handleIncomingPeerMsg(msg) {
+    if (!msg || !msg.id) return;
+    storeMessage(msg);
+    const isForCurrentChannel = (channelMode === 'cross')
+      ? (msg.channel === 'cross' || msg.senderSite === 'unicat' || msg.recipient === 'payroll' || msg.recipient === 'unicat')
+      : (msg.senderSite === SITE_ID && (msg.recipient === '' || msg.recipient === MY_USERNAME || msg.senderAdmin === MY_USERNAME));
+
+    if (isForCurrentChannel) {
+      if (!messages.some(m => m.id === msg.id)) {
+        messages.push(msg);
+        renderMessages(true);
+        const countEl = document.getElementById('sds-msg-count');
+        if (countEl) countEl.textContent = messages.length + ' pkgs';
+      }
     }
   }
 
@@ -469,6 +562,11 @@
         console.log('[SDS] Cross bridge connected: payroll-peer-admin');
       });
       p.on('call', peerCallHandler);
+      p.on('connection', (conn) => {
+        conn.on('data', (data) => {
+          if (data && data.type === 'msg' && data.msg) handleIncomingPeerMsg(data.msg);
+        });
+      });
       p.on('error', (err) => {
         console.warn('[SDS] Cross bridge status:', err.type);
         if (err.type === 'unavailable-id') {
@@ -499,6 +597,11 @@
         console.log('[SDS] Admin peer connected: payroll-peer-' + MY_USERNAME);
       });
       p.on('call', peerCallHandler);
+      p.on('connection', (conn) => {
+        conn.on('data', (data) => {
+          if (data && data.type === 'msg' && data.msg) handleIncomingPeerMsg(data.msg);
+        });
+      });
       p.on('error', (err) => {
         console.warn('[SDS] Admin peer status:', err.type);
         if (err.type === 'unavailable-id') {
@@ -1254,9 +1357,12 @@
       if (adminsBtn) adminsBtn.style.cssText = idleStyle + 'border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;';
     }
     clearAutoDeleteTimers();
-    const feed = document.getElementById('sds-feed');
-    if (feed) feed.innerHTML = '';
-    messages = [];
+    // Load from local storage cache immediately
+    const allStored = getStoredMessages();
+    messages = filterMessagesForChannel(allStored, mode);
+    renderMessages(true);
+    const countEl = document.getElementById('sds-msg-count');
+    if (countEl) countEl.textContent = messages.length + ' pkgs';
     await refreshAdminSelect();
     loadMessages();
   }
@@ -1264,30 +1370,11 @@
   // ── Polling ──────────────────────────────────────────────────────
   async function loadMessages() {
     const fetched = await firestoreFetchMessages();
-    if (fetched === null) {
-      // Do not wipe or reset messages if fetch failed due to network or quota limit
-      return;
+    if (fetched && Array.isArray(fetched)) {
+      storeMessages(fetched);
     }
-    const fetchedIds = new Set(fetched.map(m => m.id));
-    for (const id of Array.from(firstSeenAt.keys())) {
-      if (!fetchedIds.has(id)) firstSeenAt.delete(id);
-    }
-    const fetchedFiltered = fetched.filter(m => {
-      const isCross = (m.channel === 'cross' || m.senderSite === 'unicat' || m.recipient === 'payroll' || m.recipient === 'unicat');
-      if (channelMode === 'cross') {
-        return isCross;
-      } else {
-        if (isCross) return false;
-        return m.senderSite === SITE_ID && (m.recipient === '' || m.recipient === MY_USERNAME || m.senderAdmin === MY_USERNAME);
-      }
-    });
-
-    // Retain locally sent messages created within the last 2 minutes that haven't arrived from server yet
-    const serverIds = new Set(fetchedFiltered.map(m => m.id));
-    const now = Date.now();
-    const pendingLocal = messages.filter(m => !serverIds.has(m.id) && (now - new Date(m.createdAt).getTime()) < 120000);
-    messages = [...fetchedFiltered, ...pendingLocal];
-
+    const allStored = getStoredMessages();
+    messages = filterMessagesForChannel(allStored, channelMode);
     renderMessages();
     messages.forEach(scheduleAutoDelete);
     const countEl = document.getElementById('sds-msg-count');
