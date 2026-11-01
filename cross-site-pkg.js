@@ -944,6 +944,8 @@
       #sds-fab { display: none !important; }
       #sds-fab:hover { transform:scale(1.08); box-shadow:0 6px 24px rgba(0,0,0,0.15); border-color:#1e3a8a; opacity:1; }
       #sds-container { position:fixed; bottom:20px; right:20px; z-index:99999; width:370px; height:560px; background:#ffffff; border-radius:16px; box-shadow:0 8px 40px rgba(0,0,0,0.15); border:1px solid #e2e8f0; display:none; flex-direction:column; overflow:hidden; font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif; animation:sdsIn 0.3s; }
+      #sds-unicat-status-text { display:none; font-weight:600; font-size:10px; color:#64748b; white-space:nowrap; }
+      #sds-unicat-status-badge:hover #sds-unicat-status-text { display:inline-block; }
       @media(max-width:480px) { #sds-container { width:calc(100vw - 16px); height:calc(100vh - 20px); height:calc(100dvh - 20px); right:8px; bottom:8px; } }
     `;
     document.head.appendChild(style);
@@ -980,9 +982,9 @@
 
       <!-- Site indicator + channel tabs -->
       <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;justify-content:space-between;">
-        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:5px;cursor:default;">
+        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 4px;border-radius:6px;">
           <span id="sds-unicat-status-dot" style="width:7px;height:7px;background:#94a3b8;border-radius:50%;display:inline-block;flex-shrink:0;transition:all 0.3s;"></span>
-          <span id="sds-unicat-status-text" style="font-weight:600;font-size:10px;color:#64748b;white-space:nowrap;">--</span>
+          <span id="sds-unicat-status-text">--</span>
         </div>
         <div style="display:flex;align-items:center;gap:4px;">
           <button id="sds-ch-admins" style="background:#1e3a8a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;" title="PKG/CNCT OPRs">OPRs</button>
