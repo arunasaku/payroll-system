@@ -356,14 +356,111 @@ function setupEventListeners() {
         document.getElementById("modal-monthly-attendance").style.display = "none";
     });
     document.getElementById("monthly-attendance-month-select").addEventListener("change", renderMonthlyAttendanceReport);
+    const deptSelectEl = document.getElementById("monthly-attendance-dept-select");
+    if (deptSelectEl) {
+        deptSelectEl.addEventListener("change", () => {
+            populateMonthlyAttendanceEmployees();
+            renderMonthlyAttendanceReport();
+        });
+    }
     document.getElementById("monthly-attendance-emp-select").addEventListener("change", renderMonthlyAttendanceReport);
     document.getElementById("btn-print-monthly-attendance").addEventListener("click", () => {
-        const styleEl = document.createElement("style");
-        styleEl.id = "monthly-attendance-print-page-style";
-        styleEl.innerHTML = '@page { size: A4 portrait; margin: 1cm; }';
-        document.head.appendChild(styleEl);
-        window.print();
-        document.head.removeChild(styleEl);
+        const container = document.getElementById("monthly-attendance-report-container");
+        if (!container || !container.innerHTML.trim()) {
+            alert("No report data to print.");
+            return;
+        }
+
+        const month = document.getElementById("monthly-attendance-month-select").value || "";
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            alert("Please allow popups to print the report.");
+            return;
+        }
+
+        printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Monthly Attendance Report - ${month}</title>
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 10mm;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            padding: 10px;
+            color: #111;
+            background: #fff;
+        }
+        h3 {
+            text-align: center;
+            margin: 0 0 12px 0;
+            font-size: 17px;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            page-break-inside: auto;
+        }
+        tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+        }
+        thead {
+            display: table-header-group;
+        }
+        tfoot {
+            display: table-footer-group;
+        }
+        th, td {
+            border: 1px solid #777;
+            padding: 5px 6px;
+            text-align: left;
+            vertical-align: middle;
+        }
+        th {
+            background-color: #f2f4f7;
+            font-weight: bold;
+        }
+        .text-muted {
+            color: #555;
+            font-size: 11px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            .hide-on-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    ${container.innerHTML}
+</body>
+</html>`);
+
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+        }, 300);
     });
 
     // Dashboard
@@ -1378,9 +1475,37 @@ function openMonthlyAttendanceModal() {
         monthSelect.value = new Date().toISOString().substring(0, 7);
     }
     
-    // Populate employee select
+    // Populate department select
+    const deptSelect = document.getElementById("monthly-attendance-dept-select");
+    if (deptSelect) {
+        const curDept = deptSelect.value || "ALL";
+        deptSelect.innerHTML = `<option value="ALL">All Departments</option>`;
+        const departments = store.getDepartments() || [];
+        departments.forEach(d => {
+            const name = typeof d === 'string' ? d : d.name;
+            if (name) {
+                deptSelect.innerHTML += `<option value="${name}">${name}</option>`;
+            }
+        });
+        deptSelect.value = curDept;
+    }
+    
+    populateMonthlyAttendanceEmployees();
+    renderMonthlyAttendanceReport();
+}
+
+function populateMonthlyAttendanceEmployees() {
     const empSelect = document.getElementById("monthly-attendance-emp-select");
-    const employees = store.getEmployees() || [];
+    if (!empSelect) return;
+    
+    const deptSelect = document.getElementById("monthly-attendance-dept-select");
+    const selectedDept = deptSelect ? deptSelect.value : "ALL";
+    
+    let employees = store.getEmployees() || [];
+    if (selectedDept && selectedDept !== "ALL") {
+        employees = employees.filter(e => (e.department || "") === selectedDept);
+    }
+    
     const currentVal = empSelect.value;
     empSelect.innerHTML = `<option value="ALL">All Employees (Summary)</option>`;
     employees.forEach(emp => {
@@ -1388,13 +1513,15 @@ function openMonthlyAttendanceModal() {
     });
     if (currentVal && currentVal !== "ALL" && employees.some(e => e.id === currentVal)) {
         empSelect.value = currentVal;
+    } else {
+        empSelect.value = "ALL";
     }
-    
-    renderMonthlyAttendanceReport();
 }
 
 function renderMonthlyAttendanceReport() {
     const month = document.getElementById("monthly-attendance-month-select").value;
+    const deptSelect = document.getElementById("monthly-attendance-dept-select");
+    const selectedDept = deptSelect ? deptSelect.value : "ALL";
     const empId = document.getElementById("monthly-attendance-emp-select") ? document.getElementById("monthly-attendance-emp-select").value : "ALL";
     const container = document.getElementById("monthly-attendance-report-container");
     
@@ -1403,17 +1530,25 @@ function renderMonthlyAttendanceReport() {
         return;
     }
     
-    const employees = store.getEmployees() || [];
+    let employees = store.getEmployees() || [];
     const attendance = store.getAttendance() || [];
     const settings = store.getSettings() || { stdWorkDays: 26 };
     
+    if (selectedDept && selectedDept !== "ALL") {
+        employees = employees.filter(e => (e.department || "") === selectedDept);
+    }
+    
     if (empId === "ALL" || !empId) {
         let html = `
-            <h3 style="margin-bottom:15px; text-align:center;">Monthly Attendance Summary - ${month}</h3>
+            <div style="margin-bottom:15px; text-align:center;">
+                <h3 style="margin:0 0 5px 0;">Monthly Attendance Summary - ${month}</h3>
+                ${selectedDept && selectedDept !== "ALL" ? `<div style="font-size:14px; color:#555; font-weight:600;">Department: ${selectedDept}</div>` : ''}
+            </div>
             <table class="data-table" style="width:100%">
                 <thead>
                     <tr>
                         <th>Employee Name</th>
+                        ${selectedDept === "ALL" ? `<th>Department</th>` : ''}
                         <th>Days Present</th>
                         <th>Days Absent (Based on ${settings.stdWorkDays} std. days)</th>
                         <th>Normal OT (hrs)</th>
@@ -1424,6 +1559,9 @@ function renderMonthlyAttendanceReport() {
         `;
         
         let totalPresent = 0;
+        let totalNormalOt = 0;
+        let totalSpecialOt = 0;
+        let visibleCount = 0;
         
         employees.forEach(emp => {
             if (emp.endDate && emp.endDate < `${month}-01`) return;
@@ -1439,10 +1577,14 @@ function renderMonthlyAttendanceReport() {
             const specialOt = empAtt.reduce((sum, a) => sum + (a.specialOt || 0), 0);
             
             totalPresent += daysPresent;
+            totalNormalOt += normalOt;
+            totalSpecialOt += specialOt;
+            visibleCount++;
             
             html += `
                 <tr>
                     <td><strong>${emp.firstName} ${emp.lastName}</strong> <span class="text-muted" style="font-size:12px;">(${emp.id})</span></td>
+                    ${selectedDept === "ALL" ? `<td>${emp.department || '-'}</td>` : ''}
                     <td>${daysPresent}</td>
                     <td>${daysAbsent}</td>
                     <td>${normalOt.toFixed(2)}</td>
@@ -1451,8 +1593,20 @@ function renderMonthlyAttendanceReport() {
             `;
         });
         
-        if (employees.length === 0) {
-            html += `<tr><td colspan="5" style="text-align:center;">No employees found</td></tr>`;
+        if (visibleCount === 0) {
+            const colSpan = selectedDept === "ALL" ? 6 : 5;
+            html += `<tr><td colspan="${colSpan}" style="text-align:center;">No employees found</td></tr>`;
+        } else {
+            const colSpan = selectedDept === "ALL" ? 2 : 1;
+            html += `
+                <tr style="font-weight:bold; background-color: #f9f9f9;">
+                    <td colspan="${colSpan}">Total (${visibleCount} Employees)</td>
+                    <td>${totalPresent}</td>
+                    <td>-</td>
+                    <td>${totalNormalOt.toFixed(2)}</td>
+                    <td>${totalSpecialOt.toFixed(2)}</td>
+                </tr>
+            `;
         }
         
         html += `
@@ -1481,7 +1635,8 @@ function renderMonthlyAttendanceReport() {
         let html = `
             <div style="text-align:center; margin-bottom: 20px;">
                 <h3 style="margin-bottom:5px;">Monthly Attendance - ${month}</h3>
-                <p style="font-size: 16px;"><strong>${emp.firstName} ${emp.lastName}</strong> (${emp.id})</p>
+                <p style="font-size: 16px; margin: 4px 0;"><strong>${emp.firstName} ${emp.lastName}</strong> (${emp.id})</p>
+                <p style="font-size: 13px; color:#555; margin: 0 0 10px 0;">Department: <strong>${emp.department || '-'}</strong></p>
                 <div style="display:flex; justify-content:center; gap:20px; margin-top: 10px; font-size: 14px;">
                     <div>Present: <strong>${daysPresent}</strong></div>
                     <div>Absent (Std): <strong>${daysAbsent}</strong></div>
@@ -1560,7 +1715,6 @@ function renderMonthlyAttendanceReport() {
     }
 }
 
-// Sri Lankan EPF/ETF Style Payroll Processing Module
 function processPayrollRun() {
     try {
     const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
