@@ -219,11 +219,11 @@
     const { data, error } = await getSupabaseClient()
       .from('cross_site_chat')
       .select('*')
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(200);
     if (error) throw error;
 
-    return data.map(row => ({
+    return data.reverse().map(row => ({
       id:            row.id,
       senderSite:    row.sender_site,
       senderAdmin:   row.sender_admin,
@@ -737,42 +737,47 @@
   }
 
   async function getPayrollMediaStream(wantVideo) {
-    if (wantVideo) {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
-        });
-        if (s.getVideoTracks().length > 0) return s;
-      } catch (e1) {
-        try {
-          const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-          if (s.getVideoTracks().length > 0) return s;
-        } catch (e2) {}
-      }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const error = new Error('Camera and microphone access requires HTTPS or localhost.');
+      error.name = 'SecurityError';
+      throw error;
     }
-    return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+
+    return navigator.mediaDevices.getUserMedia({
+      audio: wantVideo
+        ? { echoCancellation: true, noiseSuppression: true }
+        : true,
+      video: wantVideo
+        ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: { ideal: 'user' } }
+        : false,
+    });
   }
 
-  function handleMediaError(err) {
+  function handleMediaError(err, wantVideo = false) {
     console.error('[SDS Media Error]', err);
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      alert('Microphone access is unavailable: Browsers require HTTPS or http://localhost to access microphones. If you opened via file:// or unsecure HTTP, microphone access is blocked by the browser.');
+    if (!navigator.mediaDevices?.getUserMedia || err?.name === 'SecurityError') {
+      alert('Camera and microphone access requires a secure page. Open Payroll over HTTPS or http://localhost (not file:// or plain HTTP).');
       return;
     }
     if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
-      alert('Microphone access is blocked.\n\n1. In Chrome, check chrome://settings/content/microphone and set to Allowed.\n2. In Windows Settings > Privacy & Security > Microphone, ensure "Let desktop apps access your microphone" is ON.');
+      alert(`${wantVideo ? 'Camera or microphone' : 'Microphone'} access is blocked.\n\n1. Allow camera and microphone for this Payroll site in your browser's site settings, then reload.\n2. In Windows Settings > Privacy & Security > Camera, allow camera access and "Let desktop apps access your camera". Check the Microphone setting too.`);
       return;
     }
     if (err && (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError')) {
-      alert('No microphone detected! Please plug in a microphone or headset.');
+      alert(wantVideo
+        ? 'No camera or microphone was found. Connect a camera and microphone, then try the video call again.'
+        : 'No microphone detected. Connect a microphone or headset, then try again.');
       return;
     }
     if (err && (err.name === 'NotReadableError' || err.name === 'TrackStartError')) {
-      alert('Microphone is in use by another application. Please close other audio apps and try again.');
+      alert(`${wantVideo ? 'Camera or microphone' : 'Microphone'} is unavailable or in use by another application. Close apps using the device, check the camera privacy shutter, then try again.`);
       return;
     }
-    alert('Microphone error: ' + (err?.message || err?.name || 'Permission needed'));
+    if (wantVideo && (err?.name === 'OverconstrainedError' || err?.name === 'ConstraintNotSatisfiedError')) {
+      alert('The camera cannot satisfy the requested video settings. Check that the camera is connected and try again.');
+      return;
+    }
+    alert(`${wantVideo ? 'Camera/microphone' : 'Microphone'} error (${err?.name || 'UnknownError'}): ${err?.message || 'Check device permissions and try again.'}`);
   }
 
   async function answerCall() {
@@ -783,6 +788,7 @@
       const stream = await getPayrollMediaStream(callType === 'video');
       localStream = stream;
       activeCallType = callType;
+      isVideoOff = false;
       activeCallConnection = mediaCall;
 
       mediaCall.answer(stream);
@@ -801,7 +807,7 @@
 
       showActiveCallUI();
     } catch (err) {
-      handleMediaError(err);
+      handleMediaError(err, callType === 'video');
     }
   }
 
@@ -825,12 +831,13 @@
     try {
       stream = await getPayrollMediaStream(type === 'video');
     } catch (err) {
-      handleMediaError(err);
+      handleMediaError(err, type === 'video');
       return;
     }
 
     localStream = stream;
     activeCallType = type;
+    isVideoOff = false;
 
     let targetPeerId = 'unicat-peer-admin';
     let isRemoteOnline = false;
@@ -900,12 +907,10 @@
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: type === 'video',
-      });
+      const stream = await getPayrollMediaStream(type === 'video');
       localStream = stream;
       activeCallType = type;
+      isVideoOff = false;
 
       const targetPeerId = `payroll-peer-${targetAdmin}`;
       const mediaCall = callerPeer.call(targetPeerId, stream, { metadata: { callType: type } });
@@ -924,7 +929,7 @@
 
       showActiveCallUI();
     } catch (err) {
-      handleMediaError(err);
+      handleMediaError(err, type === 'video');
     }
   }
   function showActiveCallUI() {
