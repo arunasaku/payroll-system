@@ -20,107 +20,112 @@ class DataStore {
         this.leaves = [];
         this.adjustments = {};
         this.runs = {};
-        
-        // Expose Firebase functions
-        this.doc = window.doc;
-        this.setDoc = window.setDoc;
-        this.getDoc = window.getDoc;
+    }
+
+    loadFromLocalStorageFallback() {
+        try {
+            if (localStorage.getItem('payroll_employees')) {
+                this.settings = JSON.parse(localStorage.getItem('payroll_settings')) || this.settings;
+                this.departments = JSON.parse(localStorage.getItem('payroll_departments')) || this.departments;
+                this.designations = JSON.parse(localStorage.getItem('payroll_designations')) || this.designations;
+                this.allowances_config = JSON.parse(localStorage.getItem('payroll_allowances_config')) || this.allowances_config;
+                this.employees = JSON.parse(localStorage.getItem('payroll_employees')) || this.employees;
+                this.attendance = JSON.parse(localStorage.getItem('payroll_attendance')) || this.attendance;
+                this.leaves = JSON.parse(localStorage.getItem('payroll_leaves')) || this.leaves;
+                this.adjustments = JSON.parse(localStorage.getItem('payroll_adjustments')) || this.adjustments;
+                console.log("Loaded data from localStorage fallback.");
+            }
+        } catch(e) {
+            console.warn("Could not load from localStorage fallback:", e);
+        }
     }
 
     async initFirebase() {
-        if (!window.db || !window.firebaseFirestore) {
-            console.error("Firebase not initialized yet!");
+        return this.initSupabase();
+    }
+
+    async initSupabase() {
+        if (window.initSupabaseClient) window.initSupabaseClient();
+        const client = window.supabaseClient;
+        const isConfigured = window.isSupabaseConfigured ? window.isSupabaseConfigured() : !!client;
+
+        if (!client || !isConfigured) {
+            console.warn("Supabase not fully configured yet; loading local cached data.");
+            this.loadFromLocalStorageFallback();
+            this.repairAllowancesConfig();
             return;
         }
-        
-        try {
-            this.doc = window.firebaseFirestore.doc;
-            this.setDoc = window.firebaseFirestore.setDoc;
-            this.getDoc = window.firebaseFirestore.getDoc;
-            const collection = window.firebaseFirestore.collection;
-            const getDocs = window.firebaseFirestore.getDocs;
-            
-            const docRef = this.doc(window.db, "payroll_data", "master");
-            
-            // Add a timeout to prevent infinite loading screen
-            const fetchPromise = this.getDoc(docRef);
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase timeout')), 5000));
-            
-            const docSnap = await Promise.race([fetchPromise, timeoutPromise]);
 
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                
-                // Check if we need to migrate old localStorage data
-                let localEmployees = [];
-                try { localEmployees = JSON.parse(localStorage.getItem('payroll_employees')) || []; } catch(e){}
-                
-                if (data.employees && data.employees.length === 0 && localEmployees.length > 0) {
-                    console.log("Migrating old local data to Firebase...");
-                    this.settings = JSON.parse(localStorage.getItem('payroll_settings')) || this.settings;
-                    this.departments = JSON.parse(localStorage.getItem('payroll_departments')) || this.departments;
-                    this.designations = JSON.parse(localStorage.getItem('payroll_designations')) || this.designations;
-                    this.allowances_config = JSON.parse(localStorage.getItem('payroll_allowances_config')) || this.allowances_config;
-                    this.employees = localEmployees;
-                    this.attendance = JSON.parse(localStorage.getItem('payroll_attendance')) || this.attendance;
-                    this.leaves = JSON.parse(localStorage.getItem('payroll_leaves')) || this.leaves;
-                    this.adjustments = JSON.parse(localStorage.getItem('payroll_adjustments')) || this.adjustments;
-                    this.syncToFirebase();
-                } else {
-                    this.settings = data.settings || this.settings;
-                    this.departments = data.departments || this.departments;
-                    this.designations = data.designations || this.designations;
-                    this.allowances_config = data.allowances_config || this.allowances_config;
-                    this.employees = data.employees || this.employees;
-                    this.attendance = data.attendance || this.attendance;
-                    this.leaves = data.leaves || this.leaves;
-                    this.adjustments = data.adjustments || this.adjustments;
-                    console.log("Loaded master data from Firebase!");
-                }
-            } else {
-                console.log("No data found in Firebase, saving defaults.");
-                
-                // Try to grab local data first
-                try {
-                    if (localStorage.getItem('payroll_employees')) {
-                        this.settings = JSON.parse(localStorage.getItem('payroll_settings')) || this.settings;
-                        this.departments = JSON.parse(localStorage.getItem('payroll_departments')) || this.departments;
-                        this.designations = JSON.parse(localStorage.getItem('payroll_designations')) || this.designations;
-                        this.allowances_config = JSON.parse(localStorage.getItem('payroll_allowances_config')) || this.allowances_config;
-                        this.employees = JSON.parse(localStorage.getItem('payroll_employees')) || this.employees;
-                        this.attendance = JSON.parse(localStorage.getItem('payroll_attendance')) || this.attendance;
-                        this.leaves = JSON.parse(localStorage.getItem('payroll_leaves')) || this.leaves;
-                        this.adjustments = JSON.parse(localStorage.getItem('payroll_adjustments')) || this.adjustments;
-                    }
-                } catch(e) {}
-                
-                this.syncToFirebase();
+        try {
+            const fetchPromise = client.from('payroll_master_data').select('*').eq('id', 'master').maybeSingle();
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Supabase timeout')), 7000));
+
+            const { data: row, error } = await Promise.race([fetchPromise, timeoutPromise]);
+
+            if (error) {
+                console.warn("Supabase master data query error:", error);
             }
 
-            // Fetch payroll runs in the background without blocking the UI
+            if (row && row.data) {
+                const data = row.data;
+                this.settings = data.settings || this.settings;
+                this.departments = data.departments || this.departments;
+                this.designations = data.designations || this.designations;
+                this.allowances_config = data.allowances_config || this.allowances_config;
+                this.employees = data.employees || this.employees;
+                this.attendance = data.attendance || this.attendance;
+                this.leaves = data.leaves || this.leaves;
+                this.adjustments = data.adjustments || this.adjustments;
+                console.log("Loaded master data from Supabase successfully!");
+            } else {
+                console.log("No master data found in Supabase. Checking local fallback...");
+                this.loadFromLocalStorageFallback();
+                this.syncToSupabase();
+            }
 
-            // SELF-HEAL: Restore missing id fields in allowances_config (caused by edit bug)
             this.repairAllowancesConfig();
-            getDocs(collection(window.db, "payroll_runs")).then(runsSnap => {
-                runsSnap.forEach(doc => {
-                    this.runs[doc.id] = doc.data().runs;
-                });
-                console.log("Loaded payroll runs from Firebase in the background!");
+
+            // Fetch payroll runs in the background
+            client.from('payroll_runs').select('*').then(({ data: runsData, error: runsErr }) => {
+                if (runsData && Array.isArray(runsData)) {
+                    runsData.forEach(r => {
+                        this.runs[r.month] = r.runs;
+                    });
+                    console.log("Loaded payroll runs from Supabase in the background!");
+                }
             }).catch(e => {
-                console.error("Error loading payroll runs:", e);
+                console.error("Error loading payroll runs from Supabase:", e);
             });
 
         } catch (e) {
-            console.error("Error connecting to Firebase (or timeout):", e);
-            alert("Database Error: Could not connect to Firebase! Ensure your Firestore Rules are set to 'allow read, write: if true;' and your internet is connected. Your changes will not be saved to the cloud.");
+            console.error("Error connecting to Supabase (or timeout):", e);
+            this.loadFromLocalStorageFallback();
+            this.repairAllowancesConfig();
         }
     }
 
     async syncToFirebase() {
-        if (!window.db || !this.setDoc) {
-            console.error("Firebase not ready for sync.");
+        return this.syncToSupabase();
+    }
+
+    async syncToSupabase() {
+        // Cache locally for safety
+        try {
+            localStorage.setItem('payroll_settings', JSON.stringify(this.settings));
+            localStorage.setItem('payroll_departments', JSON.stringify(this.departments));
+            localStorage.setItem('payroll_designations', JSON.stringify(this.designations));
+            localStorage.setItem('payroll_allowances_config', JSON.stringify(this.allowances_config));
+            localStorage.setItem('payroll_employees', JSON.stringify(this.employees));
+            localStorage.setItem('payroll_attendance', JSON.stringify(this.attendance));
+            localStorage.setItem('payroll_leaves', JSON.stringify(this.leaves));
+            localStorage.setItem('payroll_adjustments', JSON.stringify(this.adjustments));
+        } catch(e){}
+
+        const client = window.supabaseClient;
+        if (!client || (window.isSupabaseConfigured && !window.isSupabaseConfigured())) {
             return;
         }
+
         try {
             const dataToSave = {
                 settings: this.settings,
@@ -132,14 +137,20 @@ class DataStore {
                 leaves: this.leaves,
                 adjustments: this.adjustments
             };
-            const docRef = this.doc(window.db, "payroll_data", "master");
-            // Run asynchronously without awaiting so UI doesn't block
-            this.setDoc(docRef, dataToSave).catch(e => {
-                console.error("Firebase sync error", e);
-                alert("Database Error: Failed to save data to the cloud! Check your Firebase Firestore Security Rules.");
+
+            client.from('payroll_master_data').upsert({
+                id: 'master',
+                data: dataToSave,
+                updated_at: new Date().toISOString()
+            }).then(({ error }) => {
+                if (error) {
+                    console.error("Supabase sync error:", error);
+                }
+            }).catch(e => {
+                console.error("Supabase sync error:", e);
             });
         } catch (e) {
-            console.error("Firebase sync error", e);
+            console.error("Supabase sync error:", e);
         }
     }
 
@@ -149,9 +160,17 @@ class DataStore {
 
     savePayrollRuns(month, runs) {
         this.runs[month] = runs;
-        if (!window.db || !this.setDoc) return;
-        const docRef = this.doc(window.db, "payroll_runs", month);
-        this.setDoc(docRef, { runs: runs }).catch(e => console.error("Firebase sync error for runs", e));
+        const client = window.supabaseClient;
+        if (!client || (window.isSupabaseConfigured && !window.isSupabaseConfigured())) return;
+
+        client.from('payroll_runs').upsert({
+            month: month,
+            runs: runs,
+            updated_at: new Date().toISOString()
+        }).then(({ error }) => {
+            if (error) console.error("Supabase savePayrollRuns error:", error);
+            else console.log(`Saved payroll runs for ${month} to Supabase`);
+        }).catch(e => console.error("Supabase savePayrollRuns error:", e));
     }
 
     getSettings() { return this.settings; }

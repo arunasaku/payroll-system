@@ -3,8 +3,6 @@
 (function() {
   'use strict';
 
-  const FIREBASE_PROJECT_ID = 'hr-management-system-2aa97';
-  const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
   const SITE_ID = 'payroll';
   let ADMIN_NAME = 'Payroll OPR';
   let MY_USERNAME = 'admin';
@@ -73,38 +71,32 @@
   let isMuted = false;
   let isVideoOff = false;
 
-  // ── Firestore helpers ────────────────────────────────────────────
-  async function firestoreAddMessage(msg) {
-    const body = {
-      fields: {
-        id:            { stringValue: msg.id },
-        senderSite:    { stringValue: msg.senderSite },
-        senderAdmin:   { stringValue: msg.senderAdmin },
-        channel:       { stringValue: msg.channel || 'cross' },
-        recipient:     { stringValue: msg.recipient || '' },
-        replyToId:     { stringValue: msg.replyToId || '' },
-        replyToSender: { stringValue: msg.replyToSender || '' },
-        replyToText:   { stringValue: msg.replyToText || '' },
-        content:     { stringValue: msg.content || '' },
-        fileName:    { stringValue: msg.fileName || '' },
-        fileData:    { stringValue: msg.fileData || '' },
-        createdAt:   { stringValue: msg.createdAt },
-        timerSec:    { integerValue: String(msg.timerSec || 60) },
-        readAt:      { stringValue: '' },
-      },
-    };
-    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), 6000) : null;
-    try {
-      await fetch(`${FIRESTORE_BASE}/crossSiteChat?documentId=${msg.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller ? controller.signal : undefined,
-      });
-    } finally {
-      if (timer) clearTimeout(timer);
+  // ── Supabase cross-site message storage ────────────────────────────────────────────
+  function getSupabaseClient() {
+    if (!window.supabaseClient || !window.isSupabaseConfigured || !window.isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured. Check the payroll Supabase settings.');
     }
+    return window.supabaseClient;
+  }
+
+  async function supabaseAddMessage(msg) {
+    const { error } = await getSupabaseClient().from('cross_site_chat').upsert({
+      id:              msg.id,
+      sender_site:     msg.senderSite,
+      sender_admin:    msg.senderAdmin,
+      channel:         msg.channel || 'cross',
+      recipient:       msg.recipient || '',
+      reply_to_id:     msg.replyToId || '',
+      reply_to_sender: msg.replyToSender || '',
+      reply_to_text:   msg.replyToText || '',
+      content:         msg.content || '',
+      file_name:       msg.fileName || '',
+      file_data:       msg.fileData || '',
+      timer_sec:       msg.timerSec || 60,
+      read_at:         '',
+      created_at:      msg.createdAt || new Date().toISOString()
+    }, { onConflict: 'id' });
+    if (error) throw error;
   }
 
   // ── Strict Privacy: In-Memory Only (Zero Browser Storage Persistence) ──
@@ -147,17 +139,20 @@
     deleteTimers.clear();
   }
 
-  async function firestoreDeleteMessage(id) {
-    await fetch(`${FIRESTORE_BASE}/crossSiteChat/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
+  async function supabaseDeleteMessage(id) {
+    const { error } = await getSupabaseClient().from('cross_site_chat').delete().eq('id', id);
+    if (error) throw error;
   }
 
   async function removeMessage(msg, askConfirm) {
     if (askConfirm && !confirm('Del this PKG for both sites?')) return;
     try {
-      firestoreDeleteMessage(msg.id).catch(() => {});
-    } catch (err) {}
+      await supabaseDeleteMessage(msg.id);
+    } catch (err) {
+      console.error('[SDS] Supabase delete failed:', err);
+      if (askConfirm) alert('Message could not be deleted. Check the connection and try again.');
+      return;
+    }
     const timer = deleteTimers.get(msg.id);
     if (timer) { clearTimeout(timer); deleteTimers.delete(msg.id); }
     firstSeenAt.delete(msg.id);
@@ -167,12 +162,12 @@
     if (countEl) countEl.textContent = messages.length + ' pkgs';
   }
 
-  function markMessageAsRead(msgId) {
-    fetch(`${FIRESTORE_BASE}/crossSiteChat/${encodeURIComponent(msgId)}?updateMask.fieldPaths=readAt`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: { readAt: { stringValue: new Date().toISOString() } } }),
-    }).catch(() => {});
+  async function markMessageAsRead(msgId) {
+    const { error } = await getSupabaseClient()
+      .from('cross_site_chat')
+      .update({ read_at: new Date().toISOString() })
+      .eq('id', msgId);
+    if (error) throw error;
   }
 
   function scheduleAutoDelete(msg) {
@@ -203,7 +198,7 @@
     }
 
     if (!msg.readAt && channelMode === 'cross') {
-      markMessageAsRead(msg.id);
+      markMessageAsRead(msg.id).catch(err => console.error('[SDS] Supabase read receipt failed:', err));
       msg.readAt = new Date().toISOString();
     }
 
@@ -220,62 +215,30 @@
     deleteTimers.set(msg.id, timer);
   }
 
-  async function firestoreFetchMessages() {
-    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), 6000) : null;
-    try {
-      const queryBody = {
-        structuredQuery: {
-          from: [{ collectionId: 'crossSiteChat' }],
-          orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'ASCENDING' }],
-          limit: 200,
-        },
-      };
-      const resp = await fetch(
-        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents:runQuery`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(queryBody),
-          signal: controller ? controller.signal : undefined,
-        }
-      );
-      if (timer) clearTimeout(timer);
-      if (!resp.ok) {
-        console.warn('[SDS] Firestore response status:', resp.status);
-        return null;
-      }
-      const data = await resp.json();
-      if (!Array.isArray(data)) return null;
-      if (data.length > 0 && data[0].error) {
-        console.warn('[SDS] Firestore query error:', data[0].error?.message);
-        return null;
-      }
-      return data
-        .filter(item => item.document)
-        .map(item => {
-          const f = item.document.fields;
-          return {
-            id:            f.id?.stringValue || '',
-            senderSite:    f.senderSite?.stringValue || '',
-            senderAdmin:   f.senderAdmin?.stringValue || '',
-            channel:       f.channel?.stringValue || '',
-            recipient:     f.recipient?.stringValue || '',
-            replyToId:     f.replyToId?.stringValue || '',
-            replyToSender: f.replyToSender?.stringValue || '',
-            replyToText:   f.replyToText?.stringValue || '',
-            content:     f.content?.stringValue || null,
-            fileName:    f.fileName?.stringValue || null,
-            fileData:    f.fileData?.stringValue || null,
-            createdAt:   f.createdAt?.stringValue || '',
-            timerSec:    f.timerSec?.integerValue ? parseInt(f.timerSec.integerValue, 10) : (f.timerSec?.stringValue ? parseInt(f.timerSec.stringValue, 10) : undefined),
-            readAt:      f.readAt?.stringValue || null,
-          };
-        });
-    } catch (err) {
-      console.warn('[SDS] Firestore fetch error:', err);
-      return null;
-    }
+  async function supabaseFetchMessages() {
+    const { data, error } = await getSupabaseClient()
+      .from('cross_site_chat')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(200);
+    if (error) throw error;
+
+    return data.map(row => ({
+      id:            row.id,
+      senderSite:    row.sender_site,
+      senderAdmin:   row.sender_admin,
+      channel:       row.channel,
+      recipient:     row.recipient,
+      replyToId:     row.reply_to_id,
+      replyToSender: row.reply_to_sender,
+      replyToText:   row.reply_to_text,
+      content:       row.content,
+      fileName:      row.file_name,
+      fileData:      row.file_data,
+      createdAt:     row.created_at,
+      timerSec:      row.timer_sec,
+      readAt:        row.read_at,
+    }));
   }
 
   // ── Helpers ──────────────────────────────────────────────────────
@@ -527,7 +490,16 @@
       timerSec: deleteAfterSeconds || 60,
     };
 
-    // In-memory push only (zero disk/storage trace)
+    try {
+      await supabaseAddMessage(msg);
+    } catch (err) {
+      console.error('[SDS] Supabase send failed:', err);
+      alert('Message could not be saved. Check the connection and try again; your text is still available to resend.');
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '1'; }
+      return;
+    }
+
+    // Keep the existing in-memory-only message behavior after successful persistence.
     messages.push(msg);
     if (input) input.value = '';
     attachedFile = null;
@@ -540,13 +512,7 @@
     // Broadcast over P2P DataChannel if peer connection is active
     sendPeerMessage(msg);
 
-    try {
-      await firestoreAddMessage(msg);
-    } catch (err) {
-      console.warn('XMT sync failed (network slow or quota limit):', err);
-    } finally {
-      if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '1'; }
-    }
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '1'; }
   }
 
   function updateFilePreview() {
@@ -869,14 +835,18 @@
     let targetPeerId = 'unicat-peer-admin';
     let isRemoteOnline = false;
     try {
-      const resp = await fetch(`${FIRESTORE_BASE}/crossSiteStatus/unicat`);
-      const data = await resp.json();
-      if (data?.fields?.peerId?.stringValue) {
-        targetPeerId = data.fields.peerId.stringValue;
-      }
-      const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
+      const { data, error } = await getSupabaseClient()
+        .from('cross_site_status')
+        .select('last_seen, peer_id')
+        .eq('site', 'unicat')
+        .maybeSingle();
+      if (error) throw error;
+      if (data?.peer_id) targetPeerId = data.peer_id;
+      const lastSeen = Number(data?.last_seen || 0);
       isRemoteOnline = lastSeen && (Date.now() - lastSeen < 30000);
-    } catch (e) {}
+    } catch (err) {
+      console.error('[SDS] Supabase Unicat presence lookup failed:', err);
+    }
 
     if (!isRemoteOnline) {
       const proceed = confirm('Remote peer appears offline. To receive calls, the user on the other site must have their chat panel open.\n\nDo you still want to try ringing?');
@@ -1436,8 +1406,11 @@
 
   // ── Polling ──────────────────────────────────────────────────────
   async function loadMessages() {
-    const fetched = await firestoreFetchMessages();
-    if (!fetched) {
+    let fetched;
+    try {
+      fetched = await supabaseFetchMessages();
+    } catch (err) {
+      console.error('[SDS] Supabase message fetch failed:', err);
       return;
     }
     const fetchedIds = new Set(fetched.map(m => m.id));
@@ -1545,33 +1518,34 @@
     // 2. Render immediately from cache
     updateStatusUI(0);
 
-    // 3. Query server with timeout protection
+    // 3. Query Supabase for current presence.
     try {
-      const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      const timer = controller ? setTimeout(() => controller.abort(), 4000) : null;
-      const resp = await fetch(`${FIRESTORE_BASE}/crossSiteStatus/unicat`, {
-        signal: controller ? controller.signal : undefined
-      });
-      if (timer) clearTimeout(timer);
-      if (!resp.ok) return;
-      const data = await resp.json();
-      const lastSeen = parseInt(data?.fields?.lastSeen?.integerValue || '0', 10);
+      const { data, error } = await getSupabaseClient()
+        .from('cross_site_status')
+        .select('last_seen')
+        .eq('site', 'unicat')
+        .maybeSingle();
+      if (error) throw error;
+      const lastSeen = Number(data?.last_seen || 0);
       if (lastSeen) updateStatusUI(lastSeen);
-    } catch (e) {}
+    } catch (err) {
+      console.error('[SDS] Supabase Unicat presence check failed:', err);
+    }
   }
 
-  function sendPayrollHeartbeat() {
-    fetch(`${FIRESTORE_BASE}/crossSiteStatus/payroll?updateMask.fieldPaths=lastSeen&updateMask.fieldPaths=activeAdmin&updateMask.fieldPaths=peerId`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fields: {
-          lastSeen: { integerValue: String(Date.now()) },
-          activeAdmin: { stringValue: MY_USERNAME },
-          peerId: { stringValue: (peers.cross && peers.cross.open) ? 'payroll-peer-admin' : (peers.admin?.id || 'payroll-peer-admin') },
-        },
-      }),
-    }).catch(() => {});
+  async function sendPayrollHeartbeat() {
+    try {
+      const { error } = await getSupabaseClient().from('cross_site_status').upsert({
+        site: 'payroll',
+        last_seen: Date.now(),
+        active_admin: MY_USERNAME,
+        peer_id: (peers.cross && peers.cross.open) ? 'payroll-peer-admin' : (peers.admin?.id || 'payroll-peer-admin'),
+        updated_at: new Date().toISOString()
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.error('[SDS] Supabase Payroll heartbeat failed:', err);
+    }
   }
 
   function startPolling() {

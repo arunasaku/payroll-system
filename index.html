@@ -18,24 +18,9 @@
     <link rel="stylesheet" href="style.css?v=5">
 <link rel="icon" href="https://brandspire-lk.vercel.app/images/bs-logo.png" type="image/png">
 <meta property="og:image" content="https://brandspire-lk.vercel.app/images/bs-logo.png">
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
-  import { getFirestore, deleteDoc, doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-
-  const firebaseConfig = {
-    apiKey: "AIzaSyB_xqN7DQVQGXk1Amph6DS9eqWXr_H3Ykw",
-    authDomain: "hr-management-system-2aa97.firebaseapp.com",
-    projectId: "hr-management-system-2aa97",
-    storageBucket: "hr-management-system-2aa97.firebasestorage.app",
-    messagingSenderId: "230747654399",
-    appId: "1:230747654399:web:12146b4f81cb4c48f5e4ca",
-    measurementId: "G-E5WFLRXTLJ"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  window.db = getFirestore(app);
-  window.firebaseFirestore = { doc, setDoc, getDoc, collection, getDocs, deleteDoc };
-</script>
+<!-- Supabase JS Client & Config -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
 </head>
 <body>
 <script>
@@ -45,7 +30,7 @@ window.onerror = function(message, source, lineno, colno, error) {
 </script>
     <div id="firebase-loading-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center;">
         <div class="loader" style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
-        <div style="margin-top:20px; font-family:'Plus Jakarta Sans', sans-serif; font-size:16px; font-weight:600; color:#1e293b;">Connecting to Cloud Database...</div>
+        <div style="margin-top:20px; font-family:'Plus Jakarta Sans', sans-serif; font-size:16px; font-weight:600; color:#1e293b;">Connecting to Cloud Database (Supabase)...</div>
         <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
     </div>
     <div id="protected-app" style="display:none;">

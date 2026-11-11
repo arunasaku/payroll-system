@@ -1,5 +1,5 @@
-// auth.js – Client-side authentication for PayFlow demo
-// Users are stored in Firestore under "payflow_users" collection.
+// auth.js – Client-side authentication for PayFlow
+// Users are stored in Supabase under "payflow_users" table (with localStorage fallback).
 // Token is stored in localStorage (session-specific, per-browser).
 // Only admin can create/manage users via the User Management panel.
 
@@ -13,27 +13,39 @@ let usersCache = [];
 let usersLoaded = false;
 let initPromise = null;
 
+function getSupabase() {
+    if (window.supabaseClient) return window.supabaseClient;
+    if (window.initSupabaseClient) window.initSupabaseClient();
+    return window.supabaseClient || null;
+}
+
 async function ensureUsersLoaded() {
     if (usersLoaded) return;
     if (initPromise) { await initPromise; return; }
 
-    // Firebase must be initialized before loading users
-    if (!window.firebaseFirestore || !window.db) {
+    const client = getSupabase();
+    const isConfigured = window.isSupabaseConfigured ? window.isSupabaseConfigured() : !!client;
+
+    if (!client || !isConfigured) {
+        console.warn("Supabase not fully configured yet; loading users from localStorage fallback.");
         try { usersCache = JSON.parse(localStorage.getItem('payflowUsers') || '[]'); } catch(e){ usersCache=[]; }
-        if (usersCache.length) usersLoaded = true;
-        return; // Don't set usersLoaded — will retry on next call
+        if (!usersCache || usersCache.length === 0) {
+            usersCache = [...DEFAULT_USERS];
+        }
+        usersLoaded = true;
+        return;
     }
 
     initPromise = (async () => {
         try {
-            const { getDocs, collection } = window.firebaseFirestore;
-            const querySnapshot = await getDocs(collection(window.db, "payflow_users"));
-            usersCache = [];
-            querySnapshot.forEach((doc) => {
-                usersCache.push({ id: doc.id, ...doc.data() });
-            });
+            const rawUsers = await loadUsersRaw();
+            if (Array.isArray(rawUsers) && rawUsers.length > 0) {
+                usersCache = rawUsers;
+            } else {
+                usersCache = [];
+            }
         } catch (e) {
-            console.error("Error loading users from Firestore:", e);
+            console.error("Error loading users from Supabase:", e);
             try {
                 const local = JSON.parse(localStorage.getItem('payflowUsers') || '[]');
                 if (Array.isArray(local) && local.length > 0) {
@@ -47,21 +59,20 @@ async function ensureUsersLoaded() {
         }
 
         if (usersCache.length === 0) {
-            // Seed defaults
+            // Seed defaults into Supabase
+            console.log("No users found in Supabase. Seeding default users...");
             for (const u of DEFAULT_USERS) {
-                const userCopy = { ...u };
                 try {
-                    const { setDoc, doc } = window.firebaseFirestore;
-                    await setDoc(doc(window.db, "payflow_users", userCopy.username), {
-                        username: userCopy.username,
-                        password: userCopy.password,
-                        role: userCopy.role,
-                        department: userCopy.department,
-                        active: userCopy.active,
-                        permissions: userCopy.permissions
+                    await client.from('payflow_users').upsert({
+                        username: u.username,
+                        password: u.password,
+                        role: u.role,
+                        department: u.department,
+                        active: u.active,
+                        permissions: u.permissions
                     });
                 } catch (e) {
-                    console.error("Error seeding user:", e);
+                    console.error("Error seeding default user:", e);
                 }
             }
             usersCache = [...DEFAULT_USERS];
@@ -92,7 +103,7 @@ async function ensureUsersLoaded() {
         }
 
         if (changed) {
-            await saveUsersToFirestore(usersCache);
+            await saveUsersToSupabase(usersCache);
         }
 
         try { localStorage.setItem('payflowUsers', JSON.stringify(usersCache)); } catch(e){}
@@ -103,44 +114,67 @@ async function ensureUsersLoaded() {
     initPromise = null;
 }
 
-async function saveUsersToFirestore(users) {
+async function saveUsersToSupabase(users) {
+    const client = getSupabase();
+    if (!client || (window.isSupabaseConfigured && !window.isSupabaseConfigured())) {
+        try { localStorage.setItem('payflowUsers', JSON.stringify(users)); } catch(e){}
+        return;
+    }
+
     try {
-        const { setDoc, doc, deleteDoc } = window.firebaseFirestore;
-        // Get existing docs to find ones to delete
         const existing = await loadUsersRaw();
         const currentUsernames = new Set(users.map(u => u.username));
-        for (const existingUser of existing) {
-            if (!currentUsernames.has(existingUser.username)) {
-                await deleteDoc(doc(window.db, "payflow_users", existingUser.username));
-            }
+        const toDelete = existing.filter(e => !currentUsernames.has(e.username)).map(e => e.username);
+
+        if (toDelete.length > 0) {
+            await client.from('payflow_users').delete().in('username', toDelete);
         }
-        for (const user of users) {
-            await setDoc(doc(window.db, "payflow_users", user.username), {
-                username: user.username,
-                password: user.password,
-                role: user.role,
-                department: user.department,
-                active: user.active,
-                permissions: user.permissions
-            });
+
+        const upsertPayload = users.map(user => ({
+            username: user.username,
+            password: user.password,
+            role: user.role,
+            department: Array.isArray(user.department) ? user.department.join(', ') : (user.department || 'General'),
+            active: user.active !== false,
+            permissions: user.permissions || [],
+            updated_at: new Date().toISOString()
+        }));
+
+        const { error } = await client.from('payflow_users').upsert(upsertPayload);
+        if (error) {
+            console.error("Supabase error saving users:", error);
         }
     } catch (e) {
-        console.error("Error saving users to Firestore:", e);
+        console.error("Error saving users to Supabase:", e);
     }
     try { localStorage.setItem('payflowUsers', JSON.stringify(users)); } catch(e){}
 }
 
 async function loadUsersRaw() {
+    const client = getSupabase();
+    if (!client) return [];
+
     try {
-        const { getDocs, collection } = window.firebaseFirestore;
-        const querySnapshot = await getDocs(collection(window.db, "payflow_users"));
-        const result = [];
-        querySnapshot.forEach((doc) => {
-            result.push({ id: doc.id, ...doc.data() });
-        });
-        return result;
+        const { data, error } = await client
+            .from('payflow_users')
+            .select('*');
+
+        if (error) {
+            console.error("Supabase loadUsersRaw error:", error);
+            return [];
+        }
+
+        return (data || []).map(row => ({
+            id: row.username,
+            username: row.username,
+            password: row.password,
+            role: row.role,
+            department: row.department,
+            active: row.active,
+            permissions: row.permissions
+        }));
     } catch (e) {
-        console.error("Error loading users raw:", e);
+        console.error("Error in loadUsersRaw:", e);
         return [];
     }
 }
@@ -172,7 +206,7 @@ async function getUsers() {
 /** Save users list */
 async function saveUsers(users) {
     usersCache = [...users];
-    await saveUsersToFirestore(users);
+    await saveUsersToSupabase(users);
 }
 
 /** Attempt login */
@@ -196,7 +230,6 @@ async function login(username, password) {
 
 /** Admin-only: Create a new user. Returns { success, message } */
 async function createUser(username, password, role, department) {
-    // Check caller is admin
     const current = getCurrentUser();
     if (!current || current.role !== 'admin') {
         return { success: false, message: "Only admin can create users." };
@@ -227,7 +260,7 @@ async function createUser(username, password, role, department) {
     };
 
     usersCache.push(newUser);
-    await saveUsersToFirestore(usersCache);
+    await saveUsersToSupabase(usersCache);
     return { success: true, message: "User created successfully!" };
 }
 
@@ -246,7 +279,7 @@ async function toggleUserAccess(username) {
     if (!user) return { success: false, message: "User not found." };
 
     user.active = !user.active;
-    await saveUsersToFirestore(usersCache);
+    await saveUsersToSupabase(usersCache);
     return { success: true, message: `User "${username}" is now ${user.active ? 'active' : 'deactivated'}.` };
 }
 
@@ -263,7 +296,7 @@ async function updateUser(username, newRole, newDepartment) {
 
     if (newRole) user.role = newRole;
     if (newDepartment) user.department = newDepartment;
-    await saveUsersToFirestore(usersCache);
+    await saveUsersToSupabase(usersCache);
     return { success: true, message: `User "${username}" updated.` };
 }
 
@@ -283,7 +316,7 @@ async function deleteUser(username) {
     usersCache = usersCache.filter(u => u && u.username !== username);
     if (usersCache.length === before) return { success: false, message: "User not found." };
 
-    await saveUsersToFirestore(usersCache);
+    await saveUsersToSupabase(usersCache);
     return { success: true, message: `User "${username}" deleted.` };
 }
 
@@ -302,7 +335,7 @@ async function resetPassword(username, newPassword) {
     if (!user) return { success: false, message: "User not found." };
 
     user.password = newPassword;
-    await saveUsersToFirestore(usersCache);
+    await saveUsersToSupabase(usersCache);
     return { success: true, message: `Password for "${username}" has been reset.` };
 }
 
@@ -337,7 +370,7 @@ async function updateUserPermissions(username, permissionsArray) {
     if (!user) return { success: false, message: "User not found." };
 
     user.permissions = permissionsArray;
-    await saveUsersToFirestore(usersCache);
+    await saveUsersToSupabase(usersCache);
 
     // If updating own permissions, update token
     if (username === current.username) {
@@ -354,5 +387,6 @@ ensureUsersLoaded();
 // Export for use in other scripts (browser globals)
 window.auth = {
     login, logout, getCurrentUser, requireAuth,
-    getUsers, getCachedUsers, createUser, toggleUserAccess, updateUser, deleteUser, resetPassword, updateUserPermissions
+    getUsers, getCachedUsers, createUser, toggleUserAccess, updateUser, deleteUser, resetPassword, updateUserPermissions,
+    initAuth: ensureUsersLoaded
 };
