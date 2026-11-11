@@ -944,18 +944,13 @@
         cachedUnicatPeerId = data.peer_id;
       }
       const lastSeen = Number(data?.last_seen || 0);
-      isRemoteOnline = lastSeen && (Date.now() - lastSeen < 30000);
+      isRemoteOnline = lastSeen && (Date.now() - lastSeen < 60000);
     } catch (err) {
       console.error('[SDS] Supabase Unicat presence lookup failed:', err);
     }
 
     if (!isRemoteOnline) {
-      const proceed = confirm('Remote peer appears offline. To receive calls, the user on Unicat must have their chat panel open.\n\nDo you still want to ring?');
-      if (!proceed) {
-        if (localStream) localStream.getTracks().forEach(t => t.stop());
-        localStream = null;
-        return;
-      }
+      console.warn('[SDS] Unicat peer may be offline (last_seen stale). Proceeding with call anyway.');
     }
 
     const peerErrorHandler = (err) => {
