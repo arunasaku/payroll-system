@@ -10,6 +10,7 @@
   let channelMode = 'admins';
   let targetAdmin = ''; // '' = all payroll admins
   let pkgOpen = false;
+  let hideFabAfterCrossSend = false;
   let messages = [];
   let pollInterval = null;
   let attachedFile = null;
@@ -496,6 +497,10 @@
     }
 
     messages.push(msg);
+    if (channelMode === 'cross') {
+      hideFabAfterCrossSend = true;
+      updatePkgLauncherVisibility();
+    }
     if (input) input.value = '';
     attachedFile = null;
     cancelReply();
@@ -1419,29 +1424,27 @@
 
   function togglePkg(forceState) {
     const container = document.getElementById('sds-container');
-    const fab = document.getElementById('sds-fab');
     if (!container) return;
 
     pkgOpen = forceState !== undefined ? forceState : !pkgOpen;
 
     if (pkgOpen) {
       container.style.display = 'flex';
-      if (fab) fab.style.display = 'none';
       startPolling();
       checkUnicatOnlineStatus();
       messages.forEach(scheduleAutoDelete);
       renderMessages(true);
     } else {
       container.style.display = 'none';
-      if (fab) fab.style.display = 'flex';
       stopPolling();
     }
+    updatePkgLauncherVisibility();
   }
 
   function updatePkgLauncherVisibility() {
     const fab = document.getElementById('sds-fab');
     if (!fab) return;
-    fab.style.display = pkgOpen ? 'none' : 'flex';
+    fab.style.display = pkgOpen || hideFabAfterCrossSend ? 'none' : 'flex';
   }
 
   function initSettingsOnlyVisibility() {
