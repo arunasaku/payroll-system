@@ -11,6 +11,7 @@
   let targetAdmin = ''; // '' = all payroll admins
   let pkgOpen = false;
   let hideFabAfterCrossSend = false;
+  const fabHiddenStorageKey = () => `sds_hide_fab_after_cross_send_${MY_USERNAME}`;
   let messages = [];
   let pollInterval = null;
   let attachedFile = null;
@@ -499,6 +500,11 @@
     messages.push(msg);
     if (channelMode === 'cross') {
       hideFabAfterCrossSend = true;
+      try {
+        sessionStorage.setItem(fabHiddenStorageKey(), 'true');
+      } catch (err) {
+        console.warn('[SDS] Could not persist cross-site launcher visibility:', err);
+      }
       updatePkgLauncherVisibility();
     }
     if (input) input.value = '';
@@ -1716,6 +1722,12 @@
     if (u && u.username) {
       MY_USERNAME = u.username;
       ADMIN_NAME = u.username;
+    }
+
+    try {
+      hideFabAfterCrossSend = sessionStorage.getItem(fabHiddenStorageKey()) === 'true';
+    } catch (err) {
+      console.warn('[SDS] Could not restore cross-site launcher visibility:', err);
     }
 
     loadAutoDeleteSetting();
