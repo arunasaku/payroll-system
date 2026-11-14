@@ -413,12 +413,16 @@
     const feed = document.getElementById('sds-feed');
     if (!feed) return;
 
-    if (messages.length === 0) {
+    const visibleMessages = channelMode === 'cross'
+      ? messages.filter(msg => !(msg.senderSite === SITE_ID && msg.senderAdmin === MY_USERNAME))
+      : messages;
+
+    if (visibleMessages.length === 0) {
       feed.innerHTML = `
         <div class="sds-empty-feed" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;padding:20px;">
           <div style="font-size:28px;margin-bottom:8px;">💬</div>
-          <div><b>No messages yet</b></div>
-          <div style="font-size:10px;margin-top:4px;color:#cbd5e1;">Messages sent here sync with ${channelMode === 'cross' ? 'Unicat' : 'Payroll admins'}.</div>
+          <div><b>${messages.length ? 'Your sent messages are hidden' : 'No messages yet'}</b></div>
+          ${messages.length ? '' : `<div style="font-size:10px;margin-top:4px;color:#cbd5e1;">Messages sent here sync with ${channelMode === 'cross' ? 'Unicat' : 'Payroll admins'}.</div>`}
         </div>`;
       return;
     }
@@ -430,7 +434,7 @@
     const isNearBottom = (feed.scrollHeight - feed.scrollTop - feed.clientHeight) < 100;
 
     // Remove nodes that were deleted
-    const currentIds = new Set(messages.map(m => m.id));
+    const currentIds = new Set(visibleMessages.map(m => m.id));
     const existingNodes = feed.querySelectorAll('.sds-msg-wrapper');
     existingNodes.forEach(node => {
       const id = node.getAttribute('data-msg-id');
@@ -441,7 +445,7 @@
 
     // Append only new messages without destroying existing ones
     let hasNew = false;
-    messages.forEach(msg => {
+    visibleMessages.forEach(msg => {
       let existing = document.getElementById('sds-msg-' + msg.id);
       if (existing) {
         const isRead = !!msg.readAt;
@@ -499,13 +503,7 @@
 
     messages.push(msg);
     if (channelMode === 'cross') {
-      hideFabAfterCrossSend = true;
-      try {
-        sessionStorage.setItem(fabHiddenStorageKey(), 'true');
-      } catch (err) {
-        console.warn('[SDS] Could not persist cross-site launcher visibility:', err);
-      }
-      updatePkgLauncherVisibility();
+      hideCrossSiteLauncherForSender();
     }
     if (input) input.value = '';
     attachedFile = null;
@@ -1239,9 +1237,7 @@
         font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
         animation: sdsIn 0.3s;
       }
-      #sds-unicat-status-text { display:none; font-weight:600; font-size:10px; color:#64748b; white-space:nowrap; }
-      #sds-unicat-status-badge:hover #sds-unicat-status-text,
-      #sds-unicat-status-badge.show-text #sds-unicat-status-text { display:inline-block; }
+      #sds-unicat-status-text { display:inline-block; font-weight:600; font-size:10px; color:#64748b; white-space:nowrap; }
       @media(max-width:480px) {
         #sds-container { width:calc(100vw - 16px); height:calc(100vh - 20px); height:calc(100dvh - 20px); right:8px; bottom:8px; }
       }
@@ -1280,7 +1276,7 @@
 
       <!-- Site indicator + channel tabs -->
       <div style="background:#f8fafc;padding:6px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">
-        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 8px;border-radius:6px;min-height:22px;background:rgba(241,245,249,0.8);" title="Unicat Status">
+        <div id="sds-unicat-status-badge" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 8px;border-radius:6px;min-height:22px;background:rgba(241,245,249,0.8);" title="Connection status">
           <span id="sds-unicat-status-dot" style="width:8px;height:8px;background:#94a3b8;border-radius:50%;display:inline-block;flex-shrink:0;transition:all 0.3s;"></span>
           <span id="sds-unicat-status-text">Checking...</span>
         </div>
@@ -1453,9 +1449,25 @@
     fab.style.display = pkgOpen || hideFabAfterCrossSend ? 'none' : 'flex';
   }
 
+  function hideCrossSiteLauncherForSender() {
+    hideFabAfterCrossSend = true;
+    try {
+      localStorage.setItem(fabHiddenStorageKey(), 'true');
+    } catch (err) {
+      console.warn('[SDS] Could not persist cross-site launcher visibility:', err);
+    }
+    updatePkgLauncherVisibility();
+  }
+
   function initSettingsOnlyVisibility() {
     updatePkgLauncherVisibility();
     window.addEventListener('hashchange', updatePkgLauncherVisibility);
+    window.addEventListener('storage', event => {
+      if (event.key === fabHiddenStorageKey() && event.newValue === 'true') {
+        hideFabAfterCrossSend = true;
+        updatePkgLauncherVisibility();
+      }
+    });
   }
 
   // Channel switching
@@ -1571,6 +1583,10 @@
     const pendingLocal = messages.filter(m => !serverIds.has(m.id) && (now - new Date(m.createdAt).getTime()) < 120000);
     messages = [...filtered, ...pendingLocal];
 
+    if (channelMode === 'cross' && messages.some(m => m.senderSite === SITE_ID && m.senderAdmin === MY_USERNAME)) {
+      hideCrossSiteLauncherForSender();
+    }
+
     renderMessages();
     messages.forEach(scheduleAutoDelete);
     const countEl = document.getElementById('sds-msg-count');
@@ -1620,23 +1636,23 @@
       dot.style.background = '#22c55e';
       dot.style.boxShadow = '0 0 6px #22c55e';
       if (text) {
-        text.textContent = 'Unicat Online';
+        text.textContent = 'Online';
         text.style.color = '#15803d';
       }
-      if (badge) badge.title = 'Unicat is online and active';
+      if (badge) badge.title = 'Online and active';
     } else {
       dot.style.background = '#94a3b8';
       dot.style.boxShadow = 'none';
       const ago = formatRelativeTime(effectiveTime);
       if (text) {
-        text.textContent = 'Unicat ' + ago;
+        text.textContent = ago;
         text.style.color = '#64748b';
       }
       let fullTime = '';
       try {
         if (effectiveTime) fullTime = ` (${new Date(effectiveTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
       } catch (e) {}
-      if (badge) badge.title = effectiveTime ? `Unicat last active ${ago}${fullTime}` : 'Unicat is offline';
+      if (badge) badge.title = effectiveTime ? `Last active ${ago}${fullTime}` : 'Offline';
     }
   }
 
@@ -1725,7 +1741,7 @@
     }
 
     try {
-      hideFabAfterCrossSend = sessionStorage.getItem(fabHiddenStorageKey()) === 'true';
+      hideFabAfterCrossSend = localStorage.getItem(fabHiddenStorageKey()) === 'true';
     } catch (err) {
       console.warn('[SDS] Could not restore cross-site launcher visibility:', err);
     }
