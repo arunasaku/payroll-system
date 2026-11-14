@@ -409,20 +409,46 @@
     return wrapper;
   }
 
+  function createSentMessageStatusElement(msg, isNew) {
+    const wrapper = document.createElement('div');
+    wrapper.id = 'sds-msg-' + msg.id;
+    wrapper.className = 'sds-msg-wrapper';
+    wrapper.setAttribute('data-msg-id', msg.id);
+    wrapper.style.cssText = `display:flex;justify-content:flex-end;margin-bottom:8px;${isNew ? 'animation:sdsIn 0.2s;' : ''}`;
+
+    const statusRow = document.createElement('div');
+    statusRow.style.cssText = 'display:flex;align-items:center;gap:6px;padding:0 4px;font-size:9px;color:#64748b;';
+
+    const messageLabel = document.createElement('span');
+    messageLabel.textContent = 'Sent message';
+    statusRow.appendChild(messageLabel);
+
+    const timeSpan = document.createElement('span');
+    timeSpan.textContent = formatTime(msg.createdAt);
+    statusRow.appendChild(timeSpan);
+
+    const statusBadge = document.createElement('span');
+    statusBadge.className = 'sds-msg-status';
+    statusBadge.style.cssText = msg.readAt ? 'color:#2563eb;font-weight:700;' : 'color:#94a3b8;font-weight:600;';
+    statusBadge.textContent = msg.readAt ? '✓✓ Seen' : '✓✓ Sent';
+    statusRow.appendChild(statusBadge);
+    wrapper.appendChild(statusRow);
+
+    return wrapper;
+  }
+
   function renderMessages(forceScroll) {
     const feed = document.getElementById('sds-feed');
     if (!feed) return;
 
-    const visibleMessages = channelMode === 'cross'
-      ? messages.filter(msg => !(msg.senderSite === SITE_ID && msg.senderAdmin === MY_USERNAME))
-      : messages;
+    const visibleMessages = messages;
 
     if (visibleMessages.length === 0) {
       feed.innerHTML = `
         <div class="sds-empty-feed" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;padding:20px;">
           <div style="font-size:28px;margin-bottom:8px;">💬</div>
-          <div><b>${messages.length ? 'Your sent messages are hidden' : 'No messages yet'}</b></div>
-          ${messages.length ? '' : `<div style="font-size:10px;margin-top:4px;color:#cbd5e1;">Messages sent here sync with ${channelMode === 'cross' ? 'Unicat' : 'Payroll admins'}.</div>`}
+          <div><b>No messages yet</b></div>
+          <div style="font-size:10px;margin-top:4px;color:#cbd5e1;">Messages sent here sync with ${channelMode === 'cross' ? 'Unicat' : 'Payroll admins'}.</div>
         </div>`;
       return;
     }
@@ -458,7 +484,12 @@
         return;
       }
       hasNew = true;
-      const el = createMessageElement(msg, !isFirstRender);
+      const isHiddenSentMessage = channelMode === 'cross'
+        && msg.senderSite === SITE_ID
+        && msg.senderAdmin === MY_USERNAME;
+      const el = isHiddenSentMessage
+        ? createSentMessageStatusElement(msg, !isFirstRender)
+        : createMessageElement(msg, !isFirstRender);
       feed.appendChild(el);
     });
 
